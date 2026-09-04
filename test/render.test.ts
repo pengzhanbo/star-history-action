@@ -72,4 +72,25 @@ describe('renderStarHistorySvg', () => {
     expect(svg).toContain('width="1200"')
     expect(svg).toContain('height="800"')
   })
+
+  it('centers the title logo + text as one group without overlap', () => {
+    const svg = renderStarHistorySvg({
+      ...baseInput,
+      logo: 'https://example.com/avatar.png',
+      theme: 'light',
+    })
+
+    // jsdom cannot measure text, so drawTitle uses a length-based estimate:
+    // 10 chars * 20px * 0.6 = 120px wide, i.e. 60px half-width on the 960px chart.
+    const logoX = Number(svg.match(/<image x="(\d+)" y="12"/)?.[1])
+    // y="30" is unique to the title (legend rows sit at y="25").
+    const titleX = Number(svg.match(/<text[^>]*y="30"[^>]*x="(\d+)">owner\/repo<\/text>/)?.[1])
+    const logoSize = 22
+    const titleHalfWidth = 60
+
+    // logo (405..427) sits left of the text (435..555) — no overlap
+    expect(logoX + logoSize).toBeLessThan(titleX - titleHalfWidth)
+    // the logo+text group spans 405..555, centered on the 960px chart
+    expect(logoX + titleX + titleHalfWidth).toBe(960)
+  })
 })

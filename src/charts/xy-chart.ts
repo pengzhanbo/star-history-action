@@ -1,4 +1,4 @@
-// oxlint-disable complexity max-lines-per-function
+// oxlint-disable max-lines-per-function
 import type { AxisScale } from 'd3-axis'
 import type { D3Selection, Position, LegendPosition } from './types.js'
 import { uniq } from '@pengzhanbo/utils'
@@ -430,65 +430,6 @@ export function XYChart(
       .attr('fill', 'none')
       .attr('stroke', (_, i) => options.dataColors[i]!)
       .attr('filter', filter)
-
-    // Add lobster emoji (🦞) at the endpoint of moltbot/moltbot or openclaw/openclaw line (always)
-    // Elements have "browser-only" class and are removed during image export
-    const lobsterRepos = ['moltbot/moltbot', 'openclaw/openclaw']
-    const moltbotDataset = data.datasets.find((d) => lobsterRepos.includes(d.label.toLowerCase()))
-    if (moltbotDataset && moltbotDataset.data.length > 0) {
-      const moltbotLastPoint = moltbotDataset.data[moltbotDataset.data.length - 1]!
-      const moltbotStars = moltbotLastPoint.y
-
-      // Add lobster emoji to moltbot/openclaws
-      svgChart
-        .append('text')
-        .attr('class', 'moltbot-emoji browser-only')
-        .text('🦞')
-        .attr('x', xScale(moltbotLastPoint.x) ?? 0)
-        .attr('y', (yScale(moltbotLastPoint.y) ?? 0) - 10)
-        .style('font-size', '20px')
-        .attr('text-anchor', 'middle')
-        .attr('dominant-baseline', 'auto')
-
-      // Add prey emojis to repos with more stars (the lobster is coming for them!)
-      // Only when comparing multiple repos
-      if (data.datasets.length >= 2) {
-        const preyEmojis = ['🐟', '🦐', '🦀', '🐚', '🐌', '🪱']
-        const usedEmojis: string[] = []
-
-        data.datasets.forEach((dataset) => {
-          if (lobsterRepos.includes(dataset.label.toLowerCase())) {
-            return
-          }
-          if (dataset.data.length === 0) {
-            return
-          }
-
-          const lastPoint = dataset.data[dataset.data.length - 1]!
-          if (lastPoint.y > moltbotStars) {
-            // Pick a random emoji, avoiding duplicates until all are used
-            let availableEmojis = preyEmojis.filter((e) => !usedEmojis.includes(e))
-            if (availableEmojis.length === 0) {
-              availableEmojis = [...preyEmojis]
-              usedEmojis.length = 0
-            }
-            const randomIndex = Math.floor(Math.random() * availableEmojis.length)
-            const emoji = availableEmojis[randomIndex]!
-            usedEmojis.push(emoji)
-
-            svgChart
-              .append('text')
-              .attr('class', 'prey-emoji browser-only')
-              .text(emoji)
-              .attr('x', xScale(lastPoint.x) ?? 0)
-              .attr('y', (yScale(lastPoint.y) ?? 0) - 10)
-              .style('font-size', '20px')
-              .attr('text-anchor', 'middle')
-              .attr('dominant-baseline', 'auto')
-          }
-        })
-      }
-    }
   }
 
   if (showDots) {
