@@ -11,6 +11,11 @@ import dayjs from "dayjs";
 import { axisBottom, axisLeft } from "d3-axis";
 import duration from "dayjs/plugin/duration.js";
 import relativeTime from "dayjs/plugin/relativeTime.js";
+//#region src/common/constants.ts
+const REQUEST_TIMEOUT_MS = 15e3;
+const REPO_INFO_ACCEPT = "application/vnd.github+json";
+const STARGAZERS_ACCEPT = "application/vnd.github.v3.star+json";
+//#endregion
 //#region src/env.ts
 /**
 * Base URL of the GitHub API; honoring `GITHUB_API_URL` also supports
@@ -1153,11 +1158,7 @@ function formatDate(date) {
 }
 //#endregion
 //#region src/services/api.ts
-const API_PER_PAGE = 100;
-const REQUEST_TIMEOUT_MS = 15e3;
 const API_BASE = GITHUB_API_URL.replace(/\/+$/, "");
-const REPO_INFO_ACCEPT = "application/vnd.github+json";
-const STARGAZERS_ACCEPT = "application/vnd.github.v3.star+json";
 /**
 * Extracts the page number of the `rel="last"` link from a GitHub Link header.
 *
@@ -1227,7 +1228,7 @@ function request(url, token, accept = REPO_INFO_ACCEPT) {
 * @throws {Error} When the API response is not OK / 当 API 响应非成功状态时抛出
 */
 async function getRepoStargazers(repo, token, page) {
-	const res = await request(`${API_BASE}/repos/${repo}/stargazers?per_page=${API_PER_PAGE}${page ? `&page=${page}` : ""}`, token, STARGAZERS_ACCEPT);
+	const res = await request(`${API_BASE}/repos/${repo}/stargazers?per_page=100${page ? `&page=${page}` : ""}`, token, STARGAZERS_ACCEPT);
 	if (!res.ok) throw new Error(`Failed to get repo ${repo} stargazers: HTTP ${res.status}`);
 	return (await res.json()).map((item) => parseStarredAt(item.starred_at));
 }
@@ -1261,7 +1262,7 @@ async function getRepoStarRecords(repo, token, maxRequestAmount) {
 	const total = repoData.stargazers_count ?? 0;
 	const createdAt = repoData.created_at ?? "";
 	if (total === 0) throw new Error(`Repo ${repo} has no star records`);
-	const pageOneRes = await request(`${API_BASE}/repos/${repo}/stargazers?per_page=${API_PER_PAGE}&page=1`, token, STARGAZERS_ACCEPT);
+	const pageOneRes = await request(`${API_BASE}/repos/${repo}/stargazers?per_page=100&page=1`, token, STARGAZERS_ACCEPT);
 	if (!pageOneRes.ok) throw new Error(`Failed to get repo ${repo} star records: HTTP ${pageOneRes.status}`);
 	const pageCount = parseLastPage(pageOneRes.headers.get("link") ?? "") ?? 1;
 	const firstPageMs = (await pageOneRes.json()).map((item) => parseStarredAt(item.starred_at));
@@ -1283,7 +1284,7 @@ async function getRepoStarRecords(repo, token, maxRequestAmount) {
 			const arr = pageData.get(page);
 			if (arr.length === 0) return;
 			const boundaryMs = ascending ? arr[0] : arr[arr.length - 1];
-			const count = ascending ? (page - 1) * API_PER_PAGE : total - page * API_PER_PAGE;
+			const count = ascending ? (page - 1) * 100 : total - page * 100;
 			records.set(formatDate(boundaryMs), count);
 		});
 	}
@@ -1308,6 +1309,14 @@ async function getRepoLogo(repo, token) {
 	if (response.ok) return (await response.json()).avatar_url || "";
 	return "";
 }
+async function toBase64(url) {
+	if (!url) return "";
+	const res = await fetch(url);
+	if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
+	const type = res.headers.get("content-type") ?? "";
+	if (!/^image\//i.test(type)) throw new Error(`unexpected content-type "${type || "none"}"`);
+	return `data:${type};base64,${Buffer.from(await res.arrayBuffer()).toString("base64")}`;
+}
 //#endregion
 //#region src/index.ts
 /**
@@ -1328,7 +1337,7 @@ async function run() {
 	const isInsideWorkspace = outDir === workspace || outDir.startsWith(`${workspace}${sep}`);
 	if (!isAbsolute(outDir) || !isInsideWorkspace) throw new Error("output-directory must point inside the workspace");
 	const records = await getRepoStarRecords(config.repo, config.token, 15);
-	const logo = await getRepoLogo(config.repo, config.token);
+	const logo = await toBase64(await getRepoLogo(config.repo, config.token));
 	await mkdir(outDir, { recursive: true });
 	const chartFiles = getChartFilePaths(config);
 	for (const { theme, file } of chartFiles) {

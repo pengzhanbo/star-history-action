@@ -1,15 +1,15 @@
 import { isInteger, promiseParallel, range, withTimeout } from '@pengzhanbo/utils'
+import {
+  API_PER_PAGE,
+  REQUEST_TIMEOUT_MS,
+  REPO_INFO_ACCEPT,
+  STARGAZERS_ACCEPT,
+} from '../common/constants.js'
 import { GITHUB_API_URL } from '../env.js'
 import { formatDate } from '../utils.js'
 
-const API_PER_PAGE = 100 // GitHub API max items per request
-const REQUEST_TIMEOUT_MS = 15000 // 15s timeout for GitHub API calls
-
 // GitHub runners export GITHUB_API_URL; honoring it also supports enterprise GitHub.
 const API_BASE = GITHUB_API_URL.replace(/\/+$/, '')
-
-const REPO_INFO_ACCEPT = 'application/vnd.github+json'
-const STARGAZERS_ACCEPT = 'application/vnd.github.v3.star+json'
 
 /**
  * Extracts the page number of the `rel="last"` link from a GitHub Link header.
@@ -229,4 +229,21 @@ export async function getRepoLogo(repo: string, token: string): Promise<string> 
     return data.avatar_url || ''
   }
   return ''
+}
+
+export async function toBase64(url: string): Promise<string> {
+  if (!url) {
+    return ''
+  }
+
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`)
+  }
+  const type = res.headers.get('content-type') ?? ''
+  if (!/^image\//i.test(type)) {
+    throw new Error(`unexpected content-type "${type || 'none'}"`)
+  }
+  const buf = Buffer.from(await res.arrayBuffer())
+  return `data:${type};base64,${buf.toString('base64')}`
 }

@@ -11,3 +11,9 @@
  * 动作在速率限制较紧时依然可用。
  */
 export const DEFAULT_MAX_REQUEST_AMOUNT = 15
+
+export const API_PER_PAGE = 100 // GitHub API max items per request
+export const REQUEST_TIMEOUT_MS = 15000 // 15s timeout for GitHub API calls
+
+export const REPO_INFO_ACCEPT = 'application/vnd.github+json'
+export const STARGAZERS_ACCEPT = 'application/vnd.github.v3.star+json'

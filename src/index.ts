@@ -1,12 +1,12 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { info, setFailed } from '@actions/core'
+import { DEFAULT_MAX_REQUEST_AMOUNT } from './common/constants.js'
 import { getChartFilePaths, parseInputs } from './config.js'
 import { GITHUB_WORKSPACE } from './env.js'
 import { commitAndPush } from './git.js'
 import { renderStarHistorySvg } from './render.js'
-import { getRepoLogo, getRepoStarRecords } from './services/api.js'
-import { DEFAULT_MAX_REQUEST_AMOUNT } from './services/covert.js'
+import { getRepoLogo, getRepoStarRecords, toBase64 } from './services/api.js'
 
 /**
  * Runs the full action pipeline: parse → fetch → render → write → commit/push.
@@ -34,7 +34,7 @@ async function run(): Promise<void> {
   }
 
   const records = await getRepoStarRecords(config.repo, config.token, DEFAULT_MAX_REQUEST_AMOUNT)
-  const logo = await getRepoLogo(config.repo, config.token)
+  const logo = await toBase64(await getRepoLogo(config.repo, config.token))
 
   await mkdir(outDir, { recursive: true })
 

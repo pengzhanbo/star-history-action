@@ -117,6 +117,13 @@ beforeAll(async () => {
       res.end(JSON.stringify({ avatar_url: `${serverUrl}/users/owner/avatar.png` }))
       return
     }
+    if (url.pathname === '/users/owner/avatar.png') {
+      // The action base64-encodes the avatar as an inline <img>; it only
+      // checks status + content-type, so the bytes themselves are irrelevant.
+      res.setHeader('content-type', 'image/png')
+      res.end(Buffer.from('fake-png-bytes'))
+      return
+    }
     res.statusCode = 404
     res.end('{}')
   })
