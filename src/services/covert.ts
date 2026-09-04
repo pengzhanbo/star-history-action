@@ -1,0 +1,1 @@
+export const DEFAULT_MAX_REQUEST_AMOUNT = 15

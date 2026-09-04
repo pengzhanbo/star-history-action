@@ -1,0 +1,57 @@
+name: star-history-action
+description: Get star history of a repository and write to a file
+author: pengzhanbo
+
+inputs:
+  repo:
+    description: Repository name, e.g. pengzhanbo/star-history-action
+    required: true
+    default: ${{ github.repository }}
+  token:
+    description: GitHub token
+    required: true
+    default: ${{ github.token }}
+  output-directory:
+    description: Directory to write the chart file into, relative to the workspace root
+    required: false
+    default: assets
+  output-filename:
+    description: Output file name. When both themes are configured, -light/-dark is
+      appended before the extension
+    required: false
+    default: star-history.svg
+  svg-width:
+    description: Width of the generated SVG in pixels (height is 2/3 of width)
+    required: false
+    default: '960'
+  theme:
+    description: Chart theme. light, dark, or comma/space separated "light, dark" to
+      output both
+    required: false
+    default: light
+
+runs:
+  using: composite
+  steps:
+    - name: Set up pnpm
+      # version defaults to the `packageManager` field of this action's package.json
+      uses: pnpm/action-setup@v6
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      # --prod skips devDependencies: only the runtime deps of dist/index.js are needed
+      run: pnpm install --frozen-lockfile --prod
+    - name: Generate star history chart
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      # Inputs reach the action code as INPUT_* environment variables
+      # (matching @actions/core's getInput), mirroring the env a JS
+      # action runner would set.
+      env:
+        INPUT_REPO: ${{ inputs.repo }}
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_OUTPUT-DIRECTORY: ${{ inputs.output-directory }}
+        INPUT_OUTPUT-FILENAME: ${{ inputs.output-filename }}
+        INPUT_SVG-WIDTH: ${{ inputs.svg-width }}
+        INPUT_THEME: ${{ inputs.theme }}
+      run: node dist/index.js
