@@ -1,0 +1,25 @@
+name: Update star history
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # daily
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: star-history
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Reference the action by local path since this repository is the action itself
+      - uses: ./
+        with:
+          repo: ${{ github.repository }}
+          token: ${{ github.token }}
+          theme: light, dark
