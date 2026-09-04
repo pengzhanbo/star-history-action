@@ -23,10 +23,3 @@ jobs:
           repo: ${{ github.repository }}
           token: ${{ github.token }}
           theme: light, dark
-
-      - uses: ./
-        with:
-          repo: pengzhanbo/vuepress-theme-plume
-          token: ${{ github.token }}
-          theme: light
-          output-filename: vuepress-theme-plume.svg
