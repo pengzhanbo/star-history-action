@@ -12,7 +12,7 @@ import { addFont } from './add-font.js'
 import { drawXAxis, drawYAxis } from './draw-axis.js'
 import { drawTitle, drawXLabel, drawYLabel } from './draw-labels.js'
 import { drawLegend } from './draw-legend.js'
-import { drawWatermark } from './draw-watermark.js'
+// import { drawWatermark } from './draw-watermark.js'
 import { getFormatTimeline, getTimestampFormatUnit } from './get-format-timeline.js'
 import ToolTip from './ToolTip.js'
 
@@ -369,7 +369,7 @@ export function XYChart(
 
   const svgChart = chart.append('g').attr('pointer-events', 'all')
 
-  drawWatermark(svgChart, chartWidth, chartHeight)
+  // drawWatermark(svgChart, chartWidth, chartHeight)
 
   if (title) {
     if (uniq(datasets.map((d) => d.label.split('/')[0])).length === 1) {
