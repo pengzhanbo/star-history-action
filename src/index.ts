@@ -11,7 +11,12 @@ import { DEFAULT_MAX_REQUEST_AMOUNT } from './services/covert.js'
 async function run(): Promise<void> {
   const config = parseInputs()
 
-  const workspace = GITHUB_WORKSPACE || process.cwd()
+  // The runner always exports GITHUB_WORKSPACE; failing fast here (instead of
+  // falling back to cwd) keeps the chart from landing in an unexpected spot.
+  if (!GITHUB_WORKSPACE) {
+    throw new Error('GITHUB_WORKSPACE is not set: the action must run on a GitHub runner')
+  }
+  const workspace = GITHUB_WORKSPACE
   const outDir = resolve(workspace, config.outputDirectory)
   const isInsideWorkspace = outDir === workspace || outDir.startsWith(`${workspace}${sep}`)
   if (!isAbsolute(outDir) || !isInsideWorkspace) {

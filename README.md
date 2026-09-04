@@ -56,7 +56,9 @@ jobs:
   embedded inline so the SVG renders standalone anywhere.
 - **Commit & push**: the chart is committed as `github-actions[bot]` and pushed
   to the current branch on the default remote. Reruns that produce no changes
-  skip the commit, so the workflow is idempotent.
+  skip the commit, so the workflow is idempotent. On `pull_request` events the
+  write-back is skipped entirely — forked PRs cannot be pushed to with the
+  default token, and the chart does not belong on a feature branch.
 - **Output format**: always SVG — `output-filename` must end in `.svg`.
 
 ## Development

@@ -15,6 +15,7 @@ import relativeTime from "dayjs/plugin/relativeTime.js";
 const GITHUB_API_URL = process.env["GITHUB_API_URL"] ?? "https://api.github.com";
 const GITHUB_REPOSITORY = process.env["GITHUB_REPOSITORY"] ?? "";
 const GITHUB_SERVER_URL = process.env["GITHUB_SERVER_URL"] ?? "https://github.com";
+const GITHUB_EVENT_NAME = process.env["GITHUB_EVENT_NAME"] ?? "";
 const GITHUB_HEAD_REF = process.env["GITHUB_HEAD_REF"] ?? "";
 const GITHUB_REF_NAME = process.env["GITHUB_REF_NAME"] ?? "";
 const GITHUB_WORKSPACE = process.env["GITHUB_WORKSPACE"] ?? "";
@@ -89,6 +90,10 @@ function runGit(cwd, args) {
 	}
 }
 function commitAndPush({ cwd, files, token }) {
+	if (GITHUB_EVENT_NAME === "pull_request") {
+		info("pull_request context: skipping commit and push");
+		return;
+	}
 	runGit(cwd, ["rev-parse", "--is-inside-work-tree"]);
 	runGit(cwd, [
 		"add",
@@ -736,7 +741,12 @@ const REQUEST_TIMEOUT_MS = 15e3;
 const API_BASE = GITHUB_API_URL.replace(/\/+$/, "");
 const REPO_INFO_ACCEPT = "application/vnd.github+json";
 const STARGAZERS_ACCEPT = "application/vnd.github.v3.star+json";
-const RE_HEADER_LINK = /next.*&page=(.*)last/;
+function parseLastPage(link) {
+	const match = /<([^>]+)>\s*;\s*rel="last"/.exec(link);
+	if (!match) return null;
+	const parsed = Number.parseInt(new URL(match[1]).searchParams.get("page") ?? "", 10);
+	return isInteger(parsed) && parsed > 0 ? parsed : null;
+}
 function parseStarredAt(value) {
 	return typeof value === "number" ? value : Date.parse(value);
 }
@@ -764,10 +774,7 @@ async function getRepoStarRecords(repo, token, maxRequestAmount) {
 	if (total === 0) throw new Error(`Repo ${repo} has no star records`);
 	const pageOneRes = await request(`${API_BASE}/repos/${repo}/stargazers?per_page=${API_PER_PAGE}&page=1`, token, STARGAZERS_ACCEPT);
 	if (!pageOneRes.ok) throw new Error(`Failed to get repo ${repo} star records: HTTP ${pageOneRes.status}`);
-	let pageCount = 1;
-	const link = pageOneRes.headers.get("link") ?? "";
-	const match = Number.parseInt(RE_HEADER_LINK.exec(link)?.[1] ?? "");
-	if (isInteger(match)) pageCount = match;
+	const pageCount = parseLastPage(pageOneRes.headers.get("link") ?? "") ?? 1;
 	const firstPageMs = (await pageOneRes.json()).map((item) => parseStarredAt(item.starred_at));
 	if (firstPageMs.length === 0) throw new Error(`Repo ${repo} has no star records`);
 	const sampled = pageCount > maxRequestAmount;
@@ -807,7 +814,8 @@ async function getRepoLogo(repo, token) {
 //#region src/index.ts
 async function run() {
 	const config = parseInputs();
-	const workspace = GITHUB_WORKSPACE || process.cwd();
+	if (!GITHUB_WORKSPACE) throw new Error("GITHUB_WORKSPACE is not set: the action must run on a GitHub runner");
+	const workspace = GITHUB_WORKSPACE;
 	const outDir = resolve(workspace, config.outputDirectory);
 	const isInsideWorkspace = outDir === workspace || outDir.startsWith(`${workspace}${sep}`);
 	if (!isAbsolute(outDir) || !isInsideWorkspace) throw new Error("output-directory must point inside the workspace");

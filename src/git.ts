@@ -1,6 +1,12 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { info } from '@actions/core'
-import { GITHUB_HEAD_REF, GITHUB_REF_NAME, GITHUB_REPOSITORY, GITHUB_SERVER_URL } from './env.js'
+import {
+  GITHUB_EVENT_NAME,
+  GITHUB_HEAD_REF,
+  GITHUB_REF_NAME,
+  GITHUB_REPOSITORY,
+  GITHUB_SERVER_URL,
+} from './env.js'
 
 export interface CommitOptions {
   cwd: string // workspace root (git repo root in production)
@@ -18,6 +24,15 @@ function runGit(cwd: string, args: string[]): string {
 }
 
 export function commitAndPush({ cwd, files, token }: CommitOptions): void {
+  // On pull_request events the head ref is the source branch — for forked PRs
+  // the default token cannot push there at all, and even in-repo PRs the chart
+  // should not be committed onto a feature branch. schedule/push/workflow_dispatch
+  // runs own the write-back, so skip it entirely here.
+  if (GITHUB_EVENT_NAME === 'pull_request') {
+    info('pull_request context: skipping commit and push')
+    return
+  }
+
   runGit(cwd, ['rev-parse', '--is-inside-work-tree'])
   runGit(cwd, ['add', '--', ...files])
 

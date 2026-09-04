@@ -33,6 +33,12 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Set up Node.js 24
+      # Pin the runner to the Node version this action is built and tested
+      # against instead of whatever the hosted runner ships by default.
+      uses: actions/setup-node@v4
+      with:
+        node-version: 24
     - name: Set up pnpm
       # version defaults to the `packageManager` field of this action's package.json
       uses: pnpm/action-setup@v6

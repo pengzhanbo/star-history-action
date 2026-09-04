@@ -11,7 +11,18 @@ const API_BASE = GITHUB_API_URL.replace(/\/+$/, '')
 const REPO_INFO_ACCEPT = 'application/vnd.github+json'
 const STARGAZERS_ACCEPT = 'application/vnd.github.v3.star+json'
 
-const RE_HEADER_LINK = /next.*&page=(.*)last/
+// Extract the page number of the `rel="last"` link from the GitHub Link
+// header. Parsing through the URL search params (instead of a positional
+// regex) tolerates instances that order query params differently (e.g.
+// `?page=2&per_page=100`) or omit them.
+function parseLastPage(link: string): number | null {
+  const match = /<([^>]+)>\s*;\s*rel="last"/.exec(link)
+  if (!match) {
+    return null
+  }
+  const parsed = Number.parseInt(new URL(match[1]!).searchParams.get('page') ?? '', 10)
+  return isInteger(parsed) && parsed > 0 ? parsed : null
+}
 
 function parseStarredAt(value: string | number): number {
   return typeof value === 'number' ? value : Date.parse(value)
@@ -45,15 +56,6 @@ export async function getRepoStargazers(
   return data.map((item) => parseStarredAt(item.starred_at))
 }
 
-export async function getRepoStargazersCount(repo: string, token: string): Promise<number> {
-  const response = await request(`${API_BASE}/repos/${repo}`, token)
-  if (response.ok) {
-    const data = (await response.json()) as { stargazers_count: number }
-    return data.stargazers_count || 0
-  }
-  return 0
-}
-
 export async function getRepoStarRecords(
   repo: string,
   token: string,
@@ -76,12 +78,8 @@ export async function getRepoStarRecords(
   if (!pageOneRes.ok) {
     throw new Error(`Failed to get repo ${repo} star records: HTTP ${pageOneRes.status}`)
   }
-  let pageCount = 1
-  const link = pageOneRes.headers.get('link') ?? ''
-  const match = Number.parseInt(RE_HEADER_LINK.exec(link)?.[1] ?? '')
-  if (isInteger(match)) {
-    pageCount = match
-  }
+  // A missing or malformed `last` link degrades to a single page.
+  const pageCount = parseLastPage(pageOneRes.headers.get('link') ?? '') ?? 1
   const firstPage = (await pageOneRes.json()) as { starred_at: string | number }[]
   const firstPageMs = firstPage.map((item) => parseStarredAt(item.starred_at))
   if (firstPageMs.length === 0) {

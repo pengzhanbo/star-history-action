@@ -1,11 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  getRepoLogo,
-  getRepoStarRecords,
-  getRepoStargazers,
-  getRepoStargazersCount,
-  request,
-} from '../src/services/api.js'
+import { getRepoLogo, getRepoStarRecords, getRepoStargazers, request } from '../src/services/api.js'
 import { formatDate } from '../src/utils.js'
 
 // api.ts computes API_BASE from GITHUB_API_URL at module evaluation; pin it
@@ -119,26 +113,6 @@ describe('getRepoStargazers', () => {
     await expect(getRepoStargazers('owner/repo', TOKEN)).rejects.toThrow(
       'Failed to get repo owner/repo stargazers: HTTP 404',
     )
-  })
-})
-
-describe('getRepoStargazersCount', () => {
-  it('returns stargazers_count from the repo info', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ stargazers_count: 1234 }))
-
-    await expect(getRepoStargazersCount('owner/repo', TOKEN)).resolves.toBe(1234)
-  })
-
-  it('returns 0 on a failed response', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({}, {}, 500))
-
-    await expect(getRepoStargazersCount('owner/repo', TOKEN)).resolves.toBe(0)
-  })
-
-  it('returns 0 when the count is missing', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({}))
-
-    await expect(getRepoStargazersCount('owner/repo', TOKEN)).resolves.toBe(0)
   })
 })
 
@@ -270,6 +244,32 @@ describe('getRepoStarRecords', () => {
     ])
     // Page 1 is fetched once for the Link probe and reused as the data.
     expect(stargazerUrls().filter((url) => url.includes('page=1')).length).toBe(1)
+  })
+
+  it('parses GHES-style Link headers that order query params differently', async () => {
+    // Enterprise instances may emit `?page=N&per_page=100` (page first) or
+    // omit `per_page`; parsing must not depend on GitHub's param order.
+    const base = 'https://ghe.test/repos/owner/repo/stargazers'
+    mockPages({
+      total: 120,
+      createdAt: '2024-01-01T00:00:00Z',
+      pages: {
+        1: Array.from({ length: 100 }, () => stargazerAt('2024-01-10T00:00:00Z')),
+        2: Array.from({ length: 20 }, () => stargazerAt('2024-02-10T00:00:00Z')),
+      },
+      linkHeader: {
+        link: `<${base}?page=2&per_page=100>; rel="next", <${base}?page=2>; rel="last"`,
+      },
+    })
+
+    const records = await getRepoStarRecords('owner/repo', TOKEN, 15)
+
+    // 2 pages → full history, both pages counted.
+    expect(records).toEqual([
+      { date: '2024-01-10', stars: 100 },
+      { date: '2024-02-10', stars: 120 },
+      { date: TODAY, stars: 120 },
+    ])
   })
 
   it('samples evenly across pages when the history exceeds the request budget (oldest-first page 1)', async () => {

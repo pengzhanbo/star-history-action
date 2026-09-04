@@ -73,6 +73,31 @@ describe('commitAndPush (local mode)', () => {
     expect(git(workspace, 'rev-list', '--count', 'HEAD').trim()).toBe(countBefore)
   })
 
+  it('skips the write-back on pull_request events', async () => {
+    // Forked PRs cannot be pushed to with the default token; the chart does
+    // not belong on the feature branch, so commitAndPush must be a no-op.
+    vi.stubEnv('GITHUB_EVENT_NAME', 'pull_request')
+    vi.resetModules()
+    const pullRequestMode = (await import('../src/git.js')).commitAndPush
+    await mkdir(join(workspace, 'assets'), { recursive: true })
+    await writeFile(join(workspace, 'assets/star-history.svg'), '<svg/>', 'utf8')
+
+    expect(() =>
+      pullRequestMode({ cwd: workspace, files: ['assets/star-history.svg'], token: 't' }),
+    ).not.toThrow()
+
+    // No commit was created and the file is still untracked (git collapses a
+    // fully untracked directory to `?? assets/` in --porcelain output).
+    expect(git(workspace, 'rev-list', '--count', 'HEAD').trim()).toBe('1')
+    expect(git(workspace, 'status', '--porcelain')).toContain('assets/')
+
+    // Restore non-PR mode for the tests that follow (they run sequentially
+    // against the module-level GITHUB_EVENT_NAME read at import time).
+    vi.stubEnv('GITHUB_EVENT_NAME', '')
+    vi.resetModules()
+    ;({ commitAndPush } = await import('../src/git.js'))
+  })
+
   it('throws when cwd is not a git work tree', () => {
     expect(() => commitAndPush({ cwd: scratchRoot, files: ['a.svg'], token: 't' })).toThrow(
       /git rev-parse/,
