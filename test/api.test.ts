@@ -247,10 +247,9 @@ describe('getRepoStarRecords', () => {
       { date: '2024-02-10', stars: 150 },
       { date: TODAY, stars: 150 },
     ])
-    // repo info + page 1 (Link parse) + pages 1 and 2 (parallel fetch)
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    // repo info + page 1 (Link parse) + page 2 (the only remaining page)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(stargazerUrls().sort()).toEqual([
-      'https://api.github.test/repos/owner/repo/stargazers?per_page=100&page=1',
       'https://api.github.test/repos/owner/repo/stargazers?per_page=100&page=1',
       'https://api.github.test/repos/owner/repo/stargazers?per_page=100&page=2',
     ])
@@ -269,7 +268,8 @@ describe('getRepoStarRecords', () => {
       { date: '2024-03-01', stars: 50 },
       { date: TODAY, stars: 50 },
     ])
-    expect(stargazerUrls().filter((url) => url.includes('page=1')).length).toBe(2)
+    // Page 1 is fetched once for the Link probe and reused as the data.
+    expect(stargazerUrls().filter((url) => url.includes('page=1')).length).toBe(1)
   })
 
   it('samples evenly across pages when the history exceeds the request budget (oldest-first page 1)', async () => {
@@ -302,8 +302,10 @@ describe('getRepoStarRecords', () => {
       expect(records[i]!.date > records[i - 1]!.date).toBe(true)
       expect(records[i]!.stars).toBeGreaterThanOrEqual(records[i - 1]!.stars)
     }
-    // Only the 15 sampled pages (+ the extra page-1 Link parse) are fetched.
+    // Only the 15 sampled pages are fetched: page 1 is served from the Link
+    // probe (not refetched) and the other 14 pages go out in parallel.
     expect(new Set(stargazerUrls()).size).toBe(15)
+    expect(fetchMock).toHaveBeenCalledTimes(16)
   })
 
   it('detects newest-first page 1 and counts from the tail when sampling', async () => {
@@ -337,5 +339,32 @@ describe('getRepoStarRecords', () => {
     for (let i = 1; i < records.length; i++) {
       expect(records[i]!.date > records[i - 1]!.date).toBe(true)
     }
+  })
+
+  it('falls back to newest-first when the creation date is unparseable', async () => {
+    // A missing/empty created_at (NaN after Date.parse) must not flip the
+    // series: it degrades to GitHub's default newest-first ordering.
+    const nowMs = Date.now()
+    const day = 24 * 60 * 60 * 1000
+    mockPages({
+      total: 4000,
+      createdAt: '',
+      pages: Object.fromEntries(
+        Array.from({ length: 40 }, (_, i) => [
+          i + 1,
+          Array.from({ length: 100 }, () =>
+            stargazerAt(new Date(nowMs - (i + 1) * day).toISOString()),
+          ),
+        ]),
+      ),
+      linkHeader: linkHeader(2, 40),
+    })
+
+    const records = await getRepoStarRecords('owner/repo', TOKEN, 15)
+
+    expect(records.length).toBe(16)
+    expect(records[0]).toEqual({ date: formatDate(nowMs - 40 * day), stars: 0 })
+    expect(records.at(-2)).toEqual({ date: formatDate(nowMs - day), stars: 3900 })
+    expect(records.at(-1)).toEqual({ date: TODAY, stars: 4000 })
   })
 })

@@ -102,14 +102,15 @@ export function XYChart(
     ...initialOptions,
   }
 
+  const m = { ...margin }
   if (title) {
-    margin.top = 60
+    m.top = 60
   }
   if (xLabel) {
-    margin.bottom = 50
+    m.bottom = 50
   }
   if (yLabel) {
-    margin.left = 70
+    m.left = 70
   }
 
   const data = {
@@ -157,7 +158,7 @@ export function XYChart(
         `)
   }
 
-  const chart = d3Selection.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
+  const chart = d3Selection.append('g').attr('transform', `translate(${m.left},${m.top})`)
 
   const tooltip = new ToolTip({
     selection: d3Selection,
@@ -377,8 +378,8 @@ export function XYChart(
         const xyGroupIndex = Number(select(nodes[i].parentElement).attr('xy-group-index'))
         select(nodes[i]).attr('r', dotHoverSize)
 
-        const tipX = (xScale(d.x) ?? 0) + margin.left + 5
-        const tipY = (yScale(d.y) ?? 0) + margin.top + 5
+        const tipX = (xScale(d.x) ?? 0) + m.left + 5
+        const tipY = (yScale(d.y) ?? 0) + m.top + 5
         let tooltipPositionType: Position = 'down_right'
         if (tipX > chartWidth / 2 && tipY < chartHeight / 2) {
           tooltipPositionType = 'down_left'

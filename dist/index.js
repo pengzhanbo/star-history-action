@@ -501,9 +501,10 @@ function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, the
 		...theme === "dark" ? getDarkThemeDefaultOptions(transparent) : getDefaultOptions(transparent),
 		...initialOptions
 	};
-	if (title) margin.top = 60;
-	if (xLabel) margin.bottom = 50;
-	if (yLabel) margin.left = 70;
+	const m = { ...margin };
+	if (title) m.top = 60;
+	if (xLabel) m.bottom = 50;
+	if (yLabel) m.left = 70;
 	const data = { datasets };
 	const filter = "url(#xkcdify)";
 	const fontFamily = options.fontFamily || "xkcd";
@@ -527,7 +528,7 @@ function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, the
                 transform-box: fill-box;
             }
         `);
-	const chart = d3Selection.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+	const chart = d3Selection.append("g").attr("transform", `translate(${m.left},${m.top})`);
 	const tooltip = new ToolTip({
 		selection: d3Selection,
 		title: "",
@@ -642,8 +643,8 @@ function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, the
 			const i = [...nodes].indexOf(event.target);
 			const xyGroupIndex = Number(select(nodes[i].parentElement).attr("xy-group-index"));
 			select(nodes[i]).attr("r", dotHoverSize);
-			const tipX = (xScale(d.x) ?? 0) + margin.left + 5;
-			const tipY = (yScale(d.y) ?? 0) + margin.top + 5;
+			const tipX = (xScale(d.x) ?? 0) + m.left + 5;
+			const tipY = (yScale(d.y) ?? 0) + m.top + 5;
 			let tooltipPositionType = "down_right";
 			if (tipX > chartWidth / 2 && tipY < chartHeight / 2) tooltipPositionType = "down_left";
 			else if (tipX > chartWidth / 2 && tipY > chartHeight / 2) tooltipPositionType = "up_left";
@@ -770,15 +771,20 @@ async function getRepoStarRecords(repo, token, maxRequestAmount) {
 	const firstPageMs = (await pageOneRes.json()).map((item) => parseStarredAt(item.starred_at));
 	if (firstPageMs.length === 0) throw new Error(`Repo ${repo} has no star records`);
 	const sampled = pageCount > maxRequestAmount;
-	const pages = sampled ? Array.from({ length: maxRequestAmount }, (_, k) => 1 + Math.floor((pageCount - 1) * k / (maxRequestAmount - 1))) : range(1, pageCount + 1);
-	const pageData = await promiseParallel(pages.map((page) => getRepoStargazers(repo, token, page)));
+	const pages = sampled ? Array.from({ length: maxRequestAmount }, (_, k) => 1 + Math.floor((pageCount - 1) * k / (maxRequestAmount - 1))) : range(2, pageCount + 1);
+	const pageData = /* @__PURE__ */ new Map();
+	pageData.set(1, firstPageMs);
+	const restPages = pages.filter((page) => page !== 1);
+	const restData = await promiseParallel(restPages.map((page) => getRepoStargazers(repo, token, page)));
+	restPages.forEach((page, i) => pageData.set(page, restData[i]));
 	const records = /* @__PURE__ */ new Map();
-	if (!sampled) pageData.flat().sort((a, b) => a - b).forEach((ms, i) => records.set(formatDate(ms), i + 1));
+	if (!sampled) [...pageData.values()].flat().sort((a, b) => a - b).forEach((ms, i) => records.set(formatDate(ms), i + 1));
 	else {
 		const tFirst = firstPageMs[0];
-		const ascending = Math.abs(tFirst - Date.parse(createdAt)) < Math.abs(Date.now() - tFirst);
-		pages.forEach((page, i) => {
-			const arr = pageData[i];
+		const createdAtMs = Date.parse(createdAt);
+		const ascending = Number.isFinite(createdAtMs) && Math.abs(tFirst - createdAtMs) < Math.abs(Date.now() - tFirst);
+		pages.forEach((page) => {
+			const arr = pageData.get(page);
 			if (arr.length === 0) return;
 			const boundaryMs = ascending ? arr[0] : arr[arr.length - 1];
 			const count = ascending ? (page - 1) * API_PER_PAGE : total - page * API_PER_PAGE;

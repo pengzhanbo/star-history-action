@@ -89,21 +89,30 @@ export async function getRepoStarRecords(
   }
 
   const sampled = pageCount > maxRequestAmount
+  // Spread `maxRequestAmount` pages evenly across the history, always
+  // including page 1 and the last page (strictly ascending). Full history
+  // only needs pages after 1: page 1 was already parsed above.
   const pages = sampled
-    ? // Spread `maxRequestAmount` pages evenly across the history, always
-      // including page 1 and the last page (strictly ascending).
-      Array.from(
+    ? Array.from(
         { length: maxRequestAmount },
         (_, k) => 1 + Math.floor(((pageCount - 1) * k) / (maxRequestAmount - 1)),
       )
-    : range(1, pageCount + 1)
-  const pageData = await promiseParallel(pages.map((page) => getRepoStargazers(repo, token, page)))
+    : range(2, pageCount + 1)
+  // Reuse the parsed page 1 instead of refetching it (saves one request in
+  // both modes); only the remaining pages are fetched in parallel.
+  const pageData = new Map<number, number[]>()
+  pageData.set(1, firstPageMs)
+  const restPages = pages.filter((page) => page !== 1)
+  const restData = await promiseParallel(
+    restPages.map((page) => getRepoStargazers(repo, token, page)),
+  )
+  restPages.forEach((page, i) => pageData.set(page, restData[i]!))
 
   // Date-keyed so several stargazers on one day collapse into a single point.
   const records = new Map<string, number>()
   if (!sampled) {
     // Full history: count every stargazer at its own date, oldest first.
-    const sorted = pageData.flat().sort((a, b) => a - b)
+    const sorted = [...pageData.values()].flat().sort((a, b) => a - b)
     sorted.forEach((ms, i) => records.set(formatDate(ms), i + 1))
   } else {
     // Sampled history: one boundary point per fetched page. Each point is an
@@ -112,11 +121,14 @@ export async function getRepoStarRecords(
     // GitHub instance; decide from how far page 1's first entry sits from the
     // repo's creation date vs. now. If a live run ever shows a visibly wrong
     // series, this comparison is the suspect: flip the operator and re-test.
+    // A missing/unparseable creation date (NaN) yields no ordering signal, so
+    // fall back to newest-first, GitHub's default ordering for stargazers.
     const tFirst = firstPageMs[0]!
     const createdAtMs = Date.parse(createdAt)
-    const ascending = Math.abs(tFirst - createdAtMs) < Math.abs(Date.now() - tFirst)
-    pages.forEach((page, i) => {
-      const arr = pageData[i]!
+    const ascending =
+      Number.isFinite(createdAtMs) && Math.abs(tFirst - createdAtMs) < Math.abs(Date.now() - tFirst)
+    pages.forEach((page) => {
+      const arr = pageData.get(page)!
       if (arr.length === 0) {
         return
       }
