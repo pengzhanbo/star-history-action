@@ -1,14 +1,14 @@
 {
   "name": "star-history-action",
   "version": "1.0.0",
-  "description": "",
+  "description": "A GitHub Action to generate a star history chart for a repository.",
   "keywords": [
     "actions",
     "github",
     "star-history"
   ],
-  "license": "ISC",
-  "author": "",
+  "license": "MIT",
+  "author": "pengzhanbo <q942450674@outlook.com> (https://github.com/pengzhanbo)",
   "type": "module",
   "exports": {
     ".": "./dist/index.js",
