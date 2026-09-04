@@ -27,6 +27,8 @@ function h(type: string, props: Record<string, any> | null, ...children: any[]):
 }
 
 // Gentle organic wobble via layered sines, so the seal keeps the hand-drawn feel
+//
+// 通过叠加正弦波产生柔和的有机抖动，让印章保持手绘质感。
 const wob = (a: number): number => 1.4 * Math.sin(a * 3 + 1.2) + 1 * Math.sin(a * 5 + 0.7)
 
 /**
@@ -64,16 +66,52 @@ function rosettePath(cx: number, cy: number, r: number, depth: number, scallops:
   return parts.join(' ')
 }
 
+/**
+ * Data contract for the landscape1 OG card.
+ *
+ * landscape1 分享卡的数据契约。
+ */
 export interface Landscape1Data {
+  /**
+   * Repository name in `owner/repo` form / `owner/repo` 形式的仓库名。
+   */
   name: string
+  /**
+   * Repository description / 仓库描述。
+   */
   description: string | null
+  /**
+   * Star count / star 数量。
+   */
   stars: number
+  /**
+   * Fork count / fork 数量。
+   */
   forks: number
+  /**
+   * Primary language / 主要编程语言。
+   */
   language: string | null
+  /**
+   * License name / 许可证名称。
+   */
   license: string | null
+  /**
+   * Creation date ISO string / 创建日期 ISO 字符串。
+   */
   created_at: string | null
+  /**
+   * Owner avatar, base64-encoded for embedding / 内嵌使用的 base64 头像。
+   */
   avatarBase64: string
+  /**
+   * Radar chart SVG, base64-encoded for embedding; null hides the chart /
+   * 内嵌使用的雷达图 SVG base64；null 时隐藏雷达图。
+   */
   radarSvgBase64: string | null
+  /**
+   * Weekly metric percentiles (0–99) / 周度指标百分位（0–99）。
+   */
   attributes: {
     stars: number
     new_stars: number
@@ -82,7 +120,13 @@ export interface Landscape1Data {
     issues_closed: number
     forks: number
   } | null
+  /**
+   * Global rank; falsy/0 hides the seal / 全球排名；0 或缺失时隐藏印章。
+   */
   rank: number | null
+  /**
+   * star-history.com logo, base64-encoded / base64 编码的 star-history.com logo。
+   */
   logoBase64: string
 }
 
@@ -117,6 +161,14 @@ const LANG_COLORS: Record<string, string> = {
   'OCaml': '#3be133',
 }
 
+/**
+ * Compacts a number to a short string with K/M suffixes.
+ *
+ * 将数字紧凑格式化为带 K/M 后缀的短字符串。
+ *
+ * @param n - The number to format / 待格式化的数字
+ * @returns Compact string (e.g. `1.2M`, `12.3k`, `42`) / 紧凑字符串（如 `1.2M`、`12.3k`、`42`）
+ */
 function fmt(n: number): string {
   if (n >= 1_000_000) {
     return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
@@ -127,6 +179,14 @@ function fmt(n: number): string {
   return n.toString()
 }
 
+/**
+ * Formats an ISO date string like `Sep 2024`.
+ *
+ * 将 ISO 日期字符串格式化为 `Sep 2024` 形式。
+ *
+ * @param s - ISO date string / ISO 日期字符串
+ * @returns Short month-year string / 简短的「月份 年份」字符串
+ */
 function fmtDate(s: string): string {
   return new Date(s).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 }
@@ -144,6 +204,20 @@ const SEAL_LAYER_BASE = {
   justifyContent: 'center',
 }
 
+/**
+ * Builds the engraved text layer of the rank seal; call twice — once for the
+ * emboss highlight (offset/opacity), once for the dark stamped ink.
+ *
+ * 构建排名印章的压印文字层；通常调用两次——一次用于高光浮雕
+ * （偏移/透明度），一次用于深色压印墨色。
+ *
+ * @param rank - Global rank shown as `#N` / 展示为 `#N` 的全球排名
+ * @param date - Current date string shown under the rank / 排名下方展示的日期字符串
+ * @param colors - Text colors for label/rank/date / 标签、排名、日期的文字颜色
+ * @param offset - Layer offset in px / 图层偏移（像素）
+ * @param opacity - Layer opacity (undefined = full opaque) / 图层透明度（不传则为不透明）
+ * @returns An `h()` element tree for the layer / 该层的 `h()` 元素树
+ */
 function sealTextLayer(
   rank: number,
   date: string,
@@ -193,6 +267,20 @@ function sealTextLayer(
   )
 }
 
+/**
+ * Builds the full 1200×630 landscape1 OG card element tree.
+ *
+ * 构建完整的 1200×630 landscape1 分享卡元素树。
+ *
+ * @param data - Card data / 分享卡数据
+ * @returns A plain `{ type, props }` tree consumable by satori or React /
+ *   可被 satori 或 React 消费的纯 `{ type, props }` 元素树
+ * @example
+ * // Build the tree, then render it with satori:
+ * const tree = buildLandscape1({ name: 'owner/repo', stars: 1234, forks: 56 })
+ *
+ * // satori(tree, { width: 1200, height: 630, fonts }) will then rasterize it.
+ */
 export function buildLandscape1(data: Landscape1Data): any {
   const [owner, repoName] = data.name.split('/')
   const langColor = data.language ? (LANG_COLORS[data.language] ?? '#6b7280') : null

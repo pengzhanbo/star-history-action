@@ -8,6 +8,16 @@ import { renderStarHistorySvg } from './render.js'
 import { getRepoLogo, getRepoStarRecords } from './services/api.js'
 import { DEFAULT_MAX_REQUEST_AMOUNT } from './services/covert.js'
 
+/**
+ * Runs the full action pipeline: parse → fetch → render → write → commit/push.
+ *
+ * 运行动作的完整流水线：解析 → 抓取 → 渲染 → 写入 → 提交/推送。
+ *
+ * @throws {Error} When any pipeline step fails / 当流水线任一步骤失败时抛出
+ * @example
+ * // Entry of the composite action; failures are reported via setFailed.
+ * void main()
+ */
 async function run(): Promise<void> {
   const config = parseInputs()
 

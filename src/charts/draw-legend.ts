@@ -3,19 +3,63 @@
 import type { D3Selection, LegendPosition } from './types.js'
 import { uniq } from '@pengzhanbo/utils'
 
+/**
+ * Configuration for the legend renderer.
+ *
+ * 图例渲染器的配置。
+ */
 interface DrawLegendConfig {
+  /**
+   * Legend rows: color swatch, optional logo, and text.
+   *
+   * 图例行：色块、可选 logo 与文本。
+   */
   items: {
+    /**
+     * Color of the swatch / 色块颜色。
+     */
     color: string
+    /**
+     * Display text, usually `owner/repo` / 显示文本，通常是 `owner/repo`。
+     */
     text: string
+    /**
+     * Avatar URL; drawn when multiple owners exist / 头像 URL，存在多个所有者时绘制。
+     */
     logo: string
   }[]
+  /**
+   * Color of text and borders / 文字与边框颜色。
+   */
   strokeColor: string
+  /**
+   * Fill color of the legend background / 图例背景的填充颜色。
+   */
   backgroundColor: string
+  /**
+   * Where to place the legend / 图例的放置位置。
+   */
   legendPosition: LegendPosition
+  /**
+   * Chart width in px, used to anchor bottom-right placement /
+   * 图表宽度（像素），用于右下角放置定位。
+   */
   chartWidth: number
+  /**
+   * Chart height in px, used to anchor bottom-right placement /
+   * 图表高度（像素），用于右下角放置定位。
+   */
   chartHeight: number
 }
 
+/**
+ * Draws the dataset legend (color swatches, owner logos, labels).
+ *
+ * 绘制数据集图例（色块、所有者 logo、标签）。
+ *
+ * @param selection - Selection to append the legend into / 要追加图例的 selection
+ * @param config - Legend configuration / 图例配置
+ */
 export function drawLegend(
   selection: D3Selection,
   {

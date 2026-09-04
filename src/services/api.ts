@@ -11,10 +11,22 @@ const API_BASE = GITHUB_API_URL.replace(/\/+$/, '')
 const REPO_INFO_ACCEPT = 'application/vnd.github+json'
 const STARGAZERS_ACCEPT = 'application/vnd.github.v3.star+json'
 
-// Extract the page number of the `rel="last"` link from the GitHub Link
-// header. Parsing through the URL search params (instead of a positional
-// regex) tolerates instances that order query params differently (e.g.
-// `?page=2&per_page=100`) or omit them.
+/**
+ * Extracts the page number of the `rel="last"` link from a GitHub Link header.
+ *
+ * 从 GitHub Link 响应头中提取 `rel="last"` 链接的页码。
+ *
+ * Parsing through the URL search params (instead of a positional regex)
+ * tolerates instances that order query params differently (e.g.
+ * `?page=2&per_page=100`) or omit them, as some GHES instances do.
+ *
+ * 通过 URL 查询参数解析（而非位置正则），可以兼容部分 GHES 实例中查询参数
+ * 顺序不同（例如 `?page=2&per_page=100`）或省略参数的情况。
+ *
+ * @param link - Raw value of the `Link` response header / `Link` 响应头的原始值
+ * @returns The page count, or null when the header is missing or malformed /
+ *   页码总数；响应头缺失或格式非法时返回 null
+ */
 function parseLastPage(link: string): number | null {
   const match = /<([^>]+)>\s*;\s*rel="last"/.exec(link)
   if (!match) {
@@ -24,10 +36,31 @@ function parseLastPage(link: string): number | null {
   return isInteger(parsed) && parsed > 0 ? parsed : null
 }
 
+/**
+ * Normalizes a `starred_at` payload — epoch ms numbers pass through,
+ * ISO 8601 strings are parsed to epoch ms.
+ *
+ * 归一化 `starred_at` 负载——毫秒时间戳原样通过，ISO 8601 字符串解析为毫秒。
+ *
+ * @param value - Raw `starred_at` value / `starred_at` 原始值
+ * @returns Epoch milliseconds / 毫秒级时间戳
+ */
 function parseStarredAt(value: string | number): number {
   return typeof value === 'number' ? value : Date.parse(value)
 }
 
+/**
+ * Fetches a URL with auth and timeout handling.
+ *
+ * 带认证与超时处理地请求一个 URL。
+ *
+ * @param url - Request target / 请求目标
+ * @param token - GitHub token used as `Authorization: token` /
+ *   用于 `Authorization: token` 的 GitHub 令牌
+ * @param accept - Accept header value / Accept 请求头值
+ * @returns The fetch response (caller must check `ok` and parse the body) /
+ *   fetch 响应（调用方需检查 `ok` 并解析响应体）
+ */
 export function request(
   url: string | URL | Request,
   token: string,
@@ -40,6 +73,18 @@ export function request(
   return withTimeout((signal) => fetch(url, { headers, signal }), REQUEST_TIMEOUT_MS)
 }
 
+/**
+ * Fetches one page of stargazers and returns their `starred_at` timestamps.
+ *
+ * 抓取一页 stargazer 并返回其 `starred_at` 时间戳。
+ *
+ * @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+ * @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
+ * @param page - Page number; defaults to page 1 / 页码，默认为第 1 页
+ * @returns Epoch-ms `starred_at` values for the page, in GitHub's page order /
+ *   该页的 `starred_at` 毫秒值，顺序与 GitHub 返回的页内顺序一致
+ * @throws {Error} When the API response is not OK / 当 API 响应非成功状态时抛出
+ */
 export async function getRepoStargazers(
   repo: string,
   token: string,
@@ -56,6 +101,29 @@ export async function getRepoStargazers(
   return data.map((item) => parseStarredAt(item.starred_at))
 }
 
+/**
+ * Builds an ascending `{ date, stars }` series for the repository's history.
+ *
+ * 构建仓库历史的按日期升序 `{ date, stars }` 序列。
+ *
+ * When the history fits within the request budget, every stargazer is counted
+ * for a full per-day series. Larger repositories are sampled: one boundary
+ * point per page, each within ±100 stars of the real count. Page ordering is
+ * detected from the repo's creation date, falling back to newest-first for
+ * entries older than the GitHub default fetch of stargazers.
+ *
+ * 当历史规模在请求预算以内时，会统计每个 stargazer 生成完整的按日序列；
+ * 更大的仓库则采样每个页面的一个边界点，每点与真实数量误差在 ±100 以内。
+ * 页码顺序根据仓库创建日期判定，缺失创建日期时回退到 newest-first。
+ *
+ * @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+ * @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
+ * @param maxRequestAmount - Upper bound on the number of pages fetched /
+ *   抓取序列时最大的页数上限
+ * @returns Star records ascending by date / 按日期升序的 star 记录
+ * @throws {Error} When the repo has no stars or an API response is not OK /
+ *   当仓库没有 star 或 API 响应非成功状态时抛出
+ */
 export async function getRepoStarRecords(
   repo: string,
   token: string,
@@ -144,6 +212,15 @@ export async function getRepoStarRecords(
     .map(([date, stars]) => ({ date, stars }))
 }
 
+/**
+ * Fetches the owner's avatar URL, or `''` when the user lookup fails.
+ *
+ * 获取所有者的头像 URL；用户查询失败时返回空字符串。
+ *
+ * @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+ * @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
+ * @returns The owner's avatar URL, or `''` on failure / 所有者的头像 URL，失败时为空字符串
+ */
 export async function getRepoLogo(repo: string, token: string): Promise<string> {
   const owner = repo.split('/')[0]
   const response = await request(`${API_BASE}/users/${owner}`, token)

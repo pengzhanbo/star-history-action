@@ -6,6 +6,11 @@
 
 import { xkcdFontUrl } from '../common/fonts.js'
 
+/**
+ * Repo metrics used to draw the radar — 0–99 percentile values.
+ *
+ * 用于绘制雷达图的仓库指标——0–99 百分位数值。
+ */
 interface RepoAttributes {
   stars: number
   new_stars: number
@@ -15,7 +20,17 @@ interface RepoAttributes {
   forks: number
 }
 
+/**
+ * Radar axis labels, clockwise from 12 o'clock.
+ *
+ * 雷达轴标签，从 12 点方向顺时针排列。
+ */
 const LABELS = ['Stars', 'New Stars', 'Issues Closed', 'Contributors', 'Pushes', 'Forks']
+/**
+ * Attribute keys in the same order as {@link LABELS}.
+ *
+ * 与 {@link LABELS} 顺序一致的属性键。
+ */
 const KEYS: (keyof RepoAttributes)[] = [
   'stars',
   'new_stars',
@@ -25,7 +40,14 @@ const KEYS: (keyof RepoAttributes)[] = [
   'forks',
 ]
 
-// Seeded PRNG so the wobble is deterministic.
+/**
+ * Seeds a deterministic PRNG (LCG) so the wobble is reproducible.
+ *
+ * 构造一个可复现的伪随机数生成器（线性同余），保证抖动结果可复现。
+ *
+ * @param seed - Seed integer / 随机种子整数
+ * @returns A function yielding floats in [0, 1) / 返回生成 [0, 1) 浮点数的函数
+ */
 function createRng(seed: number) {
   let s = seed | 0
   return () => {
@@ -36,11 +58,15 @@ function createRng(seed: number) {
 
 /**
  * Generate a wobbly SVG path string for a closed polygon.
- * @param points - Array of [x, y] points for the polygon
- * @param jitter - Amount of wobble (0-1)
- * @param rng - Random number generator function
- * @param closed - Whether to close the polygon (default true)
- * @returns SVG path string
+ *
+ * 为多边形生成带抖动效果的 SVG 路径字符串。
+ *
+ * @param points - Array of [x, y] points for the polygon / 多边形顶点坐标数组
+ * @param jitter - Amount of wobble (0-1) / 抖动幅度（0-1）
+ * @param rng - Random number generator function / 随机数生成函数
+ * @param closed - Whether to close the polygon (default true) / 是否闭合多边形（默认 true）
+ * @returns SVG path string, or `''` for fewer than two points /
+ *   SVG 路径字符串；少于两个点时返回空字符串
  */
 function sketchyPolygonPath(
   points: [number, number][],
@@ -90,6 +116,21 @@ function sketchyPolygonPath(
   return segments.join(' ')
 }
 
+/**
+ * Pure-math radar SVG generator — no D3 dependency.
+ * Produces a complete `<svg>` string suitable for embedding in satori
+ * (as a data:image/svg+xml;base64 src) or direct rendering.
+ *
+ * 纯数学计算的雷达图 SVG 生成器——不依赖 D3。
+ * 生成完整的 `<svg>` 字符串，可用于嵌入 satori（作为 data:image/svg+xml;
+ * base64 的 src）或直接渲染。
+ *
+ * @param attributes - Repo metrics (0–99 percentiles) / 仓库指标（0–99 百分位）
+ * @param size - Square side length in px (default 400) / 正方形边长（像素，默认 400）
+ * @returns A complete standalone SVG string / 完整的独立 SVG 字符串
+ * @example
+ * const svg = renderRadarSvg({ stars: 90, new_stars: 40, pushes: 20 }, 400)
+ */
 export function renderRadarSvg(attributes: RepoAttributes, size = 400): string {
   const margin = 70
   const radius = (size - margin * 2) / 2

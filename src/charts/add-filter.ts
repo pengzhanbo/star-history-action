@@ -1,5 +1,17 @@
 import type { D3Selection } from './types.js'
 
+/**
+ * Injects the `xkcdify` wobble filter (feTurbulence + feDisplacementMap).
+ *
+ * Must run before any element references `url(#xkcdify)`.
+ *
+ * 注入 `xkcdify` 抖动滤镜（feTurbulence + feDisplacementMap）。
+ *
+ * 必须早于任何引用 `url(#xkcdify)` 的元素执行。
+ *
+ * @param selection - Root selection to append the `<filter>` into /
+ *   要追加 `<filter>` 的根 selection
+ */
 export function addFilter(selection: D3Selection): void {
   selection
     .append('filter')

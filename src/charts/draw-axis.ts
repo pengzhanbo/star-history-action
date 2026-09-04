@@ -6,15 +6,48 @@ import { axisBottom, axisLeft } from 'd3-axis'
 import { getFormatNumber, getNumberFormatUnit } from './get-format-number.js'
 import { getFormatTimeline, getTimestampFormatUnit } from './get-format-timeline.js'
 
+/**
+ * Configuration for the x-axis renderer.
+ *
+ * x 轴渲染器的配置。
+ */
 interface DrawXAxisConfig {
+  /**
+   * Scale mapping chart values to pixel positions.
+   *
+   * 将图表值映射为像素位置的刻度尺。
+   */
   xScale: AxisScale<number | Date>
+  /**
+   * Suggested number of ticks / 建议的刻度数量。
+   */
   tickCount: number
+  /**
+   * Vertical offset of the axis / 轴的垂直偏移。
+   */
   moveDown: number
+  /**
+   * Font family for tick labels / 刻度标签的字体族。
+   */
   fontFamily: string
+  /**
+   * Color of the axis line and tick labels / 轴线与刻度标签的颜色。
+   */
   stroke: string
+  /**
+   * How tick values are interpreted / 刻度值的解释方式。
+   */
   type: 'Date' | 'Number'
 }
 
+/**
+ * Draws the x-axis; number-type axes render human-readable durations.
+ *
+ * 绘制 x 轴；数值类型的轴向渲染人类可读的时长。
+ *
+ * @param selection - Selection to append the axis into / 要追加坐标轴的 selection
+ * @param config - Axis configuration / 坐标轴配置
+ */
 export function drawXAxis(
   selection: D3Selection,
   { xScale, tickCount, moveDown, fontFamily, stroke, type }: DrawXAxisConfig,
@@ -52,14 +85,42 @@ export function drawXAxis(
     .style('fill', stroke)
 }
 
+/**
+ * Configuration for the y-axis renderer.
+ *
+ * y 轴渲染器的配置。
+ */
 interface DrawYAxisConfig {
+  /**
+   * Scale mapping chart values to pixel positions / 将图表值映射为像素位置的刻度尺。
+   */
   yScale: AxisScale<number>
+  /**
+   * Suggested number of ticks / 建议的刻度数量。
+   */
   tickCount: number
+  /**
+   * Font family for tick labels / 刻度标签的字体族。
+   */
   fontFamily: string
+  /**
+   * Color of the axis line and tick labels / 轴线与刻度标签的颜色。
+   */
   stroke: string
+  /**
+   * Log-scale the y axis with symlog ticks / 使用 symlog 对数化 y 轴刻度。
+   */
   useLogScale?: boolean
 }
 
+/**
+ * Draws the y-axis; log mode emits smart powers-of-ten ticks.
+ *
+ * 绘制 y 轴；对数模式下生成智能的 10 的幂次刻度。
+ *
+ * @param selection - Selection to append the axis into / 要追加坐标轴的 selection
+ * @param yAxisOptions - Axis configuration / 坐标轴配置
+ */
 export function drawYAxis(
   selection: D3Selection,
   { yScale, tickCount, fontFamily, stroke, useLogScale }: DrawYAxisConfig,

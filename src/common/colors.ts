@@ -1,3 +1,8 @@
+/**
+ * 20-entry color palette for light-theme datasets.
+ *
+ * 浅色主题数据集的 20 色调色板。
+ */
 export const colors = [
   '#dd4528',
   '#28a3dd',
@@ -21,6 +26,11 @@ export const colors = [
   '#e67e22',
 ]
 
+/**
+ * 20-entry color palette for dark-theme datasets.
+ *
+ * 深色主题数据集的 20 色调色板。
+ */
 export const darkColors = [
   '#ff6b6b',
   '#48dbfb',
@@ -44,7 +54,11 @@ export const darkColors = [
   '#f5b041',
 ]
 
-// Compact palette used by backend SVG generation
+/**
+ * 9-entry fallback palette for light-theme backend SVG generation.
+ *
+ * 浅色主题后端 SVG 生成使用的 9 色精简回退调色板。
+ */
 export const colorsCompact = [
   '#dd4528',
   '#28a3dd',
@@ -57,6 +71,11 @@ export const colorsCompact = [
   '#949494',
 ]
 
+/**
+ * Compact palette for dark-theme backend SVG generation.
+ *
+ * 深色主题后端 SVG 生成使用的精简调色板。
+ */
 export const darkColorsCompact = [
   '#ff6b6b',
   '#48dbfb',

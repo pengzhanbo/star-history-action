@@ -5,8 +5,21 @@ import relativeTime from 'dayjs/plugin/relativeTime.js'
 dayjs.extend(duration)
 dayjs.extend(relativeTime)
 
+/**
+ * Granularity for human-readable duration formatting.
+ *
+ * 人类可读时长格式化的粒度。
+ */
 export type DurationUnitType = 'day' | 'week' | 'month' | 'year'
 
+/**
+ * Chooses the granularity that best fits the given duration.
+ *
+ * 为给定的时长选择最合适的粒度。
+ *
+ * @param timestamp - Duration in milliseconds / 时长（毫秒）
+ * @returns `year`, `month`, `week`, or `day` / `year`、`month`、`week` 或 `day`
+ */
 export function getTimestampFormatUnit(timestamp: number): DurationUnitType {
   let timelineUnit: DurationUnitType = 'day'
   if (dayjs.duration(timestamp).asYears() > 1) {
@@ -19,6 +32,19 @@ export function getTimestampFormatUnit(timestamp: number): DurationUnitType {
   return timelineUnit
 }
 
+/**
+ * Formats a duration as a human-readable phrase.
+ *
+ * 将时长格式化为人类可读的短语。
+ *
+ * @param timestamp - Duration in milliseconds / 时长（毫秒）
+ * @param type - Granularity; defaults to `day` / 粒度，默认为 `day`
+ * @returns `'day one'` for zero, otherwise phrases like `'a month'` or `'12 days'` /
+ *   时长为 0 时返回 `'day one'`，否则返回如 `'a month'`、`'12 days'` 这样的短语
+ * @example
+ * getFormatTimeline(0) // 'day one'
+ * getFormatTimeline(31 * 86400_000, 'month') // 'a month'
+ */
 export function getFormatTimeline(timestamp: number, type: DurationUnitType = 'day'): string {
   if (timestamp === 0) {
     return 'day one'

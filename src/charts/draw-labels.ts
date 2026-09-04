@@ -1,5 +1,17 @@
 import type { D3Selection } from './types.js'
 
+/**
+ * Draws the centered chart title, optionally with a circular owner logo.
+ *
+ * 绘制居中的图表标题，可选地附带圆形 owner 头像。
+ *
+ * @param selection - Selection to append the title into / 要追加标题的 selection
+ * @param text - Title text / 标题文字
+ * @param logoURL - Avatar URL; `''` skips the logo / 头像 URL，为空时跳过 logo
+ * @param color - Text color / 文字颜色
+ * @param chartWidth - Chart width in px; used to place the logo precisely /
+ *   图表宽度（像素），用于精确放置 logo
+ */
 export function drawTitle(
   selection: D3Selection,
   text: string,
@@ -48,6 +60,15 @@ export function drawTitle(
   }
 }
 
+/**
+ * Draws the centered x-axis label at the bottom of the chart.
+ *
+ * 在图表底部绘制居中的 x 轴标签。
+ *
+ * @param selection - Selection to append the label into / 要追加标签的 selection
+ * @param text - Label text / 标签文字
+ * @param color - Text color / 文字颜色
+ */
 export function drawXLabel(selection: D3Selection, text: string, color: string): void {
   selection
     .append('text')
@@ -59,6 +80,16 @@ export function drawXLabel(selection: D3Selection, text: string, color: string):
     .text(text)
 }
 
+/**
+ * Draws the rotated y-axis label along the left edge of the chart.
+ *
+ * 绘制图表左侧旋转 90 度的 y 轴标签。
+ *
+ * @param selection - Selection to append the label into / 要追加标签的 selection
+ * @param text - Label text / 标签文字
+ * @param color - Text color / 文字颜色
+ * @param offsetY - Vertical offset of the label / 标签的垂直偏移
+ */
 export function drawYLabel(selection: D3Selection, text: string, color: string, offsetY = 6): void {
   selection
     .append('text')
