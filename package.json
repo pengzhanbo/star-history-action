@@ -25,7 +25,7 @@
     "lint": "oxlint . --type-aware --type-check && oxfmt . --check",
     "format": "oxlint . --type-check --type-aware --fix && oxfmt .",
     "test": "vitest --coverage",
-    "prepare": "simple-git-hooks",
+    "prepare": "simple-git-hooks || true",
     "release:changelog": "conventional-changelog -p angular",
     "release:prepare": "pnpm run build && pnpm run release:changelog && oxfmt ./CHANGELOG.md",
     "release": "bumpp package.json --execute=\"pnpm run release:prepare\" --commit \"build: publish v%s\" --push --tag --all"
@@ -40,7 +40,6 @@
     "dayjs": "^1.11.23",
     "jsdom": "^30.0.1",
     "sharp": "^0.35.4",
-    "simple-git-hooks": "^2.14.0",
     "subset-font": "^2.7.0",
     "svgo": "^4.1.0"
   },
@@ -62,6 +61,7 @@
     "oxfmt": "^0.66.0",
     "oxlint": "^1.81.0",
     "oxlint-tsgolint": "^7.0.2001",
+    "simple-git-hooks": "^2.14.0",
     "tsdown": "^0.23.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"

@@ -49,8 +49,11 @@ runs:
     - name: Install dependencies
       shell: bash
       working-directory: ${{ github.action_path }}
-      # --prod skips devDependencies: only the runtime deps of dist/index.js are needed
-      run: pnpm install --frozen-lockfile --prod
+      # --prod skips devDependencies: only the runtime deps of dist/index.js are needed.
+      # --ignore-scripts skips this project's own lifecycle scripts (e.g. the
+      # "prepare": "simple-git-hooks" hook installer) and every dependency's
+      # install scripts, which must not run inside the action checkout.
+      run: pnpm install --frozen-lockfile --prod --ignore-scripts
     - name: Generate star history chart
       shell: bash
       working-directory: ${{ github.action_path }}
