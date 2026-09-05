@@ -75,9 +75,6 @@ export async function renderStarHistorySvg(input: RenderChartInput): Promise<str
   // (XML parsers, resvg) require an explicit xmlns.
   svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
   svg.setAttribute('width', String(input.width))
-  // jsdom performs no layout, so clientWidth always reads 0. Pin the width the
-  // way a browser's layout would, letting XYChart size to the svg-width input.
-  // Object.defineProperty(svg, 'clientWidth', { value: input.width })
 
   const data: XYChartData = {
     datasets: [
@@ -103,7 +100,6 @@ export async function renderStarHistorySvg(input: RenderChartInput): Promise<str
   }
 
   XYChart(svg, config, {
-    envType: 'node',
     // jsdom reports a zero-width bounding rect; drawTitle falls back to this
     // width so a non-empty logo is placed on-canvas, not at negative x.
     chartWidth: input.width,
@@ -124,8 +120,6 @@ export async function renderStarHistorySvg(input: RenderChartInput): Promise<str
       // Fall back to the full font added by addFont.
     }
   }
-
-  svg.querySelectorAll('.browser-only').forEach((el) => el.remove())
 
   const output = fixJsdomSvgCasing(svg.outerHTML)
   dom.window.close()

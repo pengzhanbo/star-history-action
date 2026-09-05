@@ -442,185 +442,6 @@ function drawLegend(selection, { items, strokeColor, backgroundColor, legendPosi
 	backgroundLayer.append("rect").style("fill", backgroundColor).attr("fill-opacity", .85).attr("stroke", strokeColor).attr("stroke-width", 2).attr("rx", 5).attr("ry", 5).attr("filter", "url(#xkcdify)").attr("width", backgroundWidth).attr("height", backgroundHeight).attr("x", legendX).attr("y", legendY);
 }
 //#endregion
-//#region src/charts/ToolTip.ts
-/**
-* An xkcd-styled tooltip for the chart's data points.
-*
-* 图表数据点的 xkcd 风格工具提示。
-*
-* Starts hidden (`visibility: hidden`) until `show()` is called. In Node
-* environments (image export) it is never shown, so it never measures text.
-*
-* 初始隐藏（`visibility: hidden`），直到调用 `show()`。在 Node 环境（图片
-* 导出）中从不显示，因此也不会进行文本测量。
-*/
-var ToolTip = class {
-	/**
-	* Tooltip headline / 工具提示的标题。
-	*/
-	title;
-	/**
-	* Rows shown below the title / 标题下方的数据行。
-	*/
-	items;
-	/**
-	* Anchor point and opening direction / 锚点位置与弹出方向。
-	*/
-	position;
-	/**
-	* Background fill color / 背景填充颜色。
-	*/
-	backgroundColor;
-	/**
-	* Text and border color / 文字与边框颜色。
-	*/
-	strokeColor;
-	/**
-	* Wobble filter applied to the background / 应用于背景的抖动滤镜。
-	*/
-	filter = "url(#xkcdify)";
-	/**
-	* Root element of the tooltip / 工具提示的根元素。
-	*/
-	svg;
-	/**
-	* Title text element / 标题文本元素。
-	*/
-	tipTitle;
-	/**
-	* Per-row groups (swatch + label) / 每行分组（色块 + 标签）。
-	*/
-	tipItems;
-	/**
-	* Background rectangle / 背景矩形。
-	*/
-	tipBackground;
-	/**
-	* Creates a new (initially hidden) tooltip.
-	*
-	* 创建新的（初始隐藏的）工具提示。
-	*
-	* @param config - Tooltip configuration / 工具提示配置
-	*/
-	constructor({ selection, title, items, position, backgroundColor, strokeColor }) {
-		this.title = title;
-		this.items = items;
-		this.position = position;
-		this.backgroundColor = backgroundColor;
-		this.strokeColor = strokeColor;
-		this.svg = selection.append("svg").attr("x", this._getUpLeftX()).attr("y", this._getUpLeftY()).style("visibility", "hidden");
-		this.tipBackground = this.svg.append("rect").style("fill", this.backgroundColor).attr("fill-opacity", .9).attr("stroke", strokeColor).attr("stroke-width", 2).attr("rx", 5).attr("ry", 5).attr("filter", this.filter).attr("width", this._getBackgroundWidth()).attr("height", this._getBackgroundHeight()).attr("x", 5).attr("y", 5);
-		this.tipTitle = this.svg.append("text").style("font-size", "15px").style("font-weight", "bold").style("fill", this.strokeColor).attr("x", 15).attr("y", 25).text(title);
-		this.tipItems = items.map((item, i) => {
-			return this._generateTipItem(item, i);
-		});
-	}
-	/**
-	* Makes the tooltip visible / 显示工具提示。
-	*/
-	show() {
-		this.svg.style("visibility", "visible");
-	}
-	/**
-	* Hides the tooltip / 隐藏工具提示。
-	*/
-	hide() {
-		this.svg.style("visibility", "hidden");
-	}
-	/**
-	* Refreshes the tooltip's title, rows, or anchor position.
-	*
-	* 更新工具提示的标题、数据行或锚点位置。
-	*
-	* @param config - Partial/total tooltip state; unchanged props are kept /
-	*   部分或完整的工具提示状态；未变化的属性保持不变
-	*/
-	update({ title, items, position }) {
-		if (title && title !== this.title) {
-			this.title = title;
-			this.tipTitle.text(title);
-		}
-		if (items && JSON.stringify(items) !== JSON.stringify(this.items)) {
-			this.items = items;
-			this.tipItems.forEach((g) => g.svg.remove());
-			this.tipItems = this.items.map((item, i) => {
-				return this._generateTipItem(item, i);
-			});
-			const maxWidth = Math.max(...this.tipItems.map((item) => item.width), this.tipTitle.node().getBBox().width);
-			this.tipBackground.attr("width", maxWidth + 15).attr("height", this._getBackgroundHeight());
-		}
-		if (position) {
-			this.position = position;
-			this.svg.attr("x", this._getUpLeftX());
-			this.svg.attr("y", this._getUpLeftY());
-		}
-	}
-	/**
-	* Builds one row (color swatch + label) and measures its dimensions.
-	*
-	* 构建一行（色块 + 标签）并测量其尺寸。
-	*
-	* @param item - Row content / 行内容
-	* @param i - Row index, used for vertical stacking / 行索引，用于垂直排布
-	* @returns The appended row group with its measured size /
-	*   追加的行分组及其测量尺寸
-	*/
-	_generateTipItem(item, i) {
-		const svg = this.svg.append("svg");
-		svg.append("rect").style("fill", item.color).attr("width", 8).attr("height", 8).attr("rx", 2).attr("ry", 2).attr("filter", this.filter).attr("x", 15).attr("y", 37 + 20 * i);
-		svg.append("text").style("font-size", "15px").style("fill", this.strokeColor).attr("x", 27).attr("y", 37 + 20 * i + 8).text(item.text);
-		const bbox = svg.node().getBBox();
-		return {
-			svg,
-			width: bbox.width + 15,
-			height: bbox.height + 10
-		};
-	}
-	/**
-	* Background width estimated from the longest row text (no DOM measurement).
-	*
-	* 根据最长行文本估算背景宽度（无需 DOM 测量）。
-	*
-	* @returns Estimated width in px / 估算的宽度（像素）
-	*/
-	_getBackgroundWidth() {
-		const maxItemLength = this.items.reduce((pre, cur) => pre > cur.text.length ? pre : cur.text.length, 0);
-		return Math.max(maxItemLength, this.title.length) * 7.4 + 25;
-	}
-	/**
-	* Background height for the title plus one row per item.
-	*
-	* 标题加每行条目对应的背景高度。
-	*
-	* @returns Estimated height in px / 估算的高度（像素）
-	*/
-	_getBackgroundHeight() {
-		return (this.items.length + 1) * 20 + 10;
-	}
-	/**
-	* Left-most x of the tip, keeping left-opening tips left of the anchor.
-	*
-	* 提示的最左 x 坐标，向左展开的提示保持在锚点左侧。
-	*
-	* @returns X position for the root element / 根元素的 x 位置
-	*/
-	_getUpLeftX() {
-		if (this.position.type === "up_right" || this.position.type === "down_right") return this.position.x;
-		return this.position.x - this._getBackgroundWidth() - 20;
-	}
-	/**
-	* Top-most y of the tip, keeping down-opening tips below the anchor.
-	*
-	* 提示的最上 y 坐标，向下展开的提示保持在锚点下方。
-	*
-	* @returns Y position for the root element / 根元素的 y 位置
-	*/
-	_getUpLeftY() {
-		if (this.position.type === "down_left" || this.position.type === "down_right") return this.position.y;
-		return this.position.y - this._getBackgroundHeight() - 20;
-	}
-};
-//#endregion
 //#region src/charts/xy-chart.ts
 /**
 * Base chart padding, copied per render so consecutive renders never
@@ -644,9 +465,7 @@ const margin = {
 * @returns The default options / 默认选项
 */
 const getDefaultOptions = (transparent) => ({
-	envType: "node",
 	xTickLabelType: "Date",
-	dateFormat: "MMM DD, YYYY",
 	xTickCount: 5,
 	yTickCount: 5,
 	showLine: true,
@@ -687,7 +506,7 @@ const getDarkThemeDefaultOptions = (transparent) => ({
 * @example
 * XYChart(svg, { title: 'owner/repo', xLabel: 'Date', yLabel: 'Stars',
 *   data, showDots: true, transparent: false, theme: 'light' },
-*   { envType: 'node', chartWidth: 960 })
+*   { chartWidth: 960 })
 */
 function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, theme, transparent }, initialOptions) {
 	const options = {
@@ -704,36 +523,10 @@ function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, the
 	const clientWidth = Number(svg.clientWidth > 0 ? svg.clientWidth : svg.getAttribute("width") ?? "") || 600;
 	const clientHeight = clientWidth * 2 / 3;
 	const d3Selection = select(svg).style("stroke-width", 3).style("font-family", fontFamily).style("background", options.backgroundColor).attr("width", clientWidth).attr("height", clientHeight).attr("preserveAspectRatio", "xMidYMid meet");
-	if (options.envType === "browser") d3Selection.attr("width", clientWidth <= 600 ? 600 : "100%").attr("viewBox", `0 0 ${clientWidth <= 600 ? 600 : clientWidth} ${clientHeight}`);
 	d3Selection.selectAll("*").remove();
 	addFont(d3Selection);
 	addFilter(d3Selection);
-	if (options.envType === "browser") d3Selection.append("style").text(`
-            @keyframes lobster-swim {
-                0%, 100% { transform: translate(0, 0) rotate(0deg); }
-                25% { transform: translate(2px, -3px) rotate(-5deg); }
-                50% { transform: translate(0, -5px) rotate(0deg); }
-                75% { transform: translate(-2px, -3px) rotate(5deg); }
-            }
-            .moltbot-emoji {
-                animation: lobster-swim 1.5s ease-in-out infinite;
-                transform-origin: center;
-                transform-box: fill-box;
-            }
-        `);
 	const chart = d3Selection.append("g").attr("transform", `translate(${m.left},${m.top})`);
-	const tooltip = new ToolTip({
-		selection: d3Selection,
-		title: "",
-		items: [],
-		position: {
-			x: 60,
-			y: 60,
-			type: "up_left"
-		},
-		strokeColor: options.strokeColor,
-		backgroundColor: options.backgroundColor
-	});
 	if (options.xTickLabelType === "Date") data.datasets.forEach((dataset) => {
 		dataset.data.forEach((d) => {
 			d.x = dayjs(d.x);
@@ -788,53 +581,13 @@ function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, the
 	}
 	if (showDots) {
 		const dotInitSize = 3.5 * (options.dotSize ?? 1);
-		const dotHoverSize = 6 * (options.dotSize ?? 1);
 		svgChart.selectAll(".xkcd-chart-xycircle-group").data(data.datasets).enter().append("g").attr("class", "xkcd-chart-xycircle-group").attr("filter", filter).attr("xy-group-index", (_, i) => i).selectAll(".xkcd-chart-xycircle-circle").data((dataset) => dataset.data).enter().append("circle").attr("class", "chart-tooltip-dot").style("stroke", (_, i, nodes) => {
 			const xyGroupIndex = Number(select(nodes[i].parentElement).attr("xy-group-index"));
 			return options.dataColors[xyGroupIndex];
 		}).style("fill", (_, i, nodes) => {
 			const xyGroupIndex = Number(select(nodes[i].parentElement).attr("xy-group-index"));
 			return options.dataColors[xyGroupIndex];
-		}).attr("r", dotInitSize).attr("cx", (d) => xScale(d.x) ?? 0).attr("cy", (d) => yScale(d.y) ?? 0).attr("pointer-events", "all").on("mouseover", (event, d) => {
-			if (window === void 0) return;
-			const nodes = event.currentTarget.parentNode.childNodes ?? [];
-			const i = [...nodes].indexOf(event.target);
-			const xyGroupIndex = Number(select(nodes[i].parentElement).attr("xy-group-index"));
-			select(nodes[i]).attr("r", dotHoverSize);
-			const tipX = (xScale(d.x) ?? 0) + m.left + 5;
-			const tipY = (yScale(d.y) ?? 0) + m.top + 5;
-			let tooltipPositionType = "down_right";
-			if (tipX > chartWidth / 2 && tipY < chartHeight / 2) tooltipPositionType = "down_left";
-			else if (tipX > chartWidth / 2 && tipY > chartHeight / 2) tooltipPositionType = "up_left";
-			else if (tipX < chartWidth / 2 && tipY > chartHeight / 2) tooltipPositionType = "up_right";
-			let formattedTitle = dayjs(data.datasets[xyGroupIndex].data[i].x).format(options.dateFormat);
-			if (options.xTickLabelType === "Number") {
-				const type = getTimestampFormatUnit(Number(data.datasets[xyGroupIndex].data[1].x || data.datasets[xyGroupIndex].data[i].x));
-				formattedTitle = getFormatTimeline(Number(data.datasets[xyGroupIndex].data[i].x), type);
-			}
-			tooltip.update({
-				title: formattedTitle,
-				items: [{
-					color: options.dataColors[xyGroupIndex],
-					text: `${data.datasets[xyGroupIndex].label || ""}: ${d.y}`
-				}],
-				position: {
-					x: tipX,
-					y: tipY,
-					type: tooltipPositionType
-				},
-				selection: d3Selection,
-				backgroundColor: options.backgroundColor,
-				strokeColor: options.strokeColor
-			});
-			tooltip.show();
-		}).on("mouseout", (event) => {
-			const nodes = event.currentTarget.parentNode.childNodes ?? [];
-			if (!nodes.length) return;
-			const i = [...nodes].indexOf(event.target);
-			select(nodes[i]).attr("r", dotInitSize);
-			tooltip.hide();
-		});
+		}).attr("r", dotInitSize).attr("cx", (d) => xScale(d.x) ?? 0).attr("cy", (d) => yScale(d.y) ?? 0);
 	}
 	drawLegend(svgChart, {
 		items: data.datasets.map((dataset, i) => ({
@@ -895,15 +648,11 @@ async function renderStarHistorySvg(input) {
 		showDots: true,
 		transparent: false,
 		theme: input.theme
-	}, {
-		envType: "node",
-		chartWidth: input.width
-	});
+	}, { chartWidth: input.width });
 	const styleEl = svg.querySelector("style");
 	if (styleEl) try {
 		styleEl.textContent = `@font-face { font-family: "xkcd"; src: url(${await getSubsetFontUrl(Array.from(svg.querySelectorAll("text")).map((el) => el.textContent ?? "").join(""))}) format('woff2'); }`;
 	} catch {}
-	svg.querySelectorAll(".browser-only").forEach((el) => el.remove());
 	const output = fixJsdomSvgCasing(svg.outerHTML);
 	dom.window.close();
 	return optimize(output, { multipass: true }).data;

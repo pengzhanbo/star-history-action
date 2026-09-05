@@ -65,14 +65,6 @@ describe('renderStarHistorySvg', () => {
     expect(svg).not.toContain('application/font-woff')
   })
 
-  it('skips browser-only extras in node rendering', async () => {
-    const svg = await renderStarHistorySvg({ ...baseInput, theme: 'light' })
-
-    // envType: 'node' — no animation styles, no emoji easter eggs for a neutral repo
-    expect(svg).not.toContain('lobster-swim')
-    expect(svg).not.toContain('browser-only')
-  })
-
   it('honors a custom svg-width', async () => {
     const svg = await renderStarHistorySvg({ ...baseInput, theme: 'light', width: 1200 })
 

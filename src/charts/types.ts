@@ -8,13 +8,6 @@ import type { Selection } from 'd3-selection'
 export type D3Selection = Selection<SVGSVGElement | SVGGElement, unknown, null, undefined>
 
 /**
- * Placement of the tooltip relative to its anchor point.
- *
- * 工具提示相对其锚点的位置。
- */
-export type Position = 'down_right' | 'down_left' | 'up_right' | 'up_left'
-
-/**
  * Placement of the legend inside the chart.
  *
  * 图例在图表内的位置。

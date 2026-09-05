@@ -1,6 +1,6 @@
 // oxlint-disable max-lines-per-function
 import type { AxisScale } from 'd3-axis'
-import type { D3Selection, Position, LegendPosition } from './types.js'
+import type { D3Selection, LegendPosition } from './types.js'
 import { uniq } from '@pengzhanbo/utils'
 import { scaleLinear, scaleTime, scaleSymlog } from 'd3-scale'
 import { select } from 'd3-selection'
@@ -13,8 +13,6 @@ import { drawXAxis, drawYAxis } from './draw-axis.js'
 import { drawTitle, drawXLabel, drawYLabel } from './draw-labels.js'
 import { drawLegend } from './draw-legend.js'
 // import { drawWatermark } from './draw-watermark.js'
-import { getFormatTimeline, getTimestampFormatUnit } from './get-format-timeline.js'
-import ToolTip from './ToolTip.js'
 
 /**
  * Base chart padding, copied per render so consecutive renders never
@@ -128,19 +126,9 @@ type XTickLabelType = 'Date' | 'Number'
  */
 export interface XYChartOptions {
   /**
-   * Environment the chart renders in — gates responsive sizing,
-   * animation styles and tooltip behavior / 图表渲染环境——决定响应式
-   * 尺寸、动画样式与工具提示行为。
-   */
-  envType: 'browser' | 'node'
-  /**
    * Tick label interpretation for x / x 轴刻度标签的解释方式。
    */
   xTickLabelType: XTickLabelType
-  /**
-   * Tooltip date format / 工具提示的日期格式。
-   */
-  dateFormat?: string
   /**
    * Suggested x tick count / 建议的 x 轴刻度数量。
    */
@@ -198,9 +186,7 @@ export interface XYChartOptions {
  * @returns The default options / 默认选项
  */
 const getDefaultOptions = (transparent: boolean): XYChartOptions => ({
-  envType: 'node',
   xTickLabelType: 'Date',
-  dateFormat: 'MMM DD, YYYY',
   xTickCount: 5,
   yTickCount: 5,
   showLine: true,
@@ -243,7 +229,7 @@ const getDarkThemeDefaultOptions = (transparent: boolean): XYChartOptions => ({
  * @example
  * XYChart(svg, { title: 'owner/repo', xLabel: 'Date', yLabel: 'Stars',
  *   data, showDots: true, transparent: false, theme: 'light' },
- *   { envType: 'node', chartWidth: 960 })
+ *   { chartWidth: 960 })
  */
 export function XYChart(
   svg: SVGSVGElement,
@@ -290,44 +276,12 @@ export function XYChart(
     .attr('height', clientHeight)
     .attr('preserveAspectRatio', 'xMidYMid meet') as D3Selection
 
-  if (options.envType === 'browser') {
-    // If in browser, be more responsive.
-    d3Selection
-      .attr('width', clientWidth <= 600 ? 600 : '100%')
-      .attr('viewBox', `0 0 ${clientWidth <= 600 ? 600 : clientWidth} ${clientHeight}`)
-  }
   d3Selection.selectAll('*').remove()
 
   addFont(d3Selection)
   addFilter(d3Selection)
 
-  // Add animation styles for moltbot lobster emoji (browser only, skip for image generation)
-  if (options.envType === 'browser') {
-    d3Selection.append('style').text(`
-            @keyframes lobster-swim {
-                0%, 100% { transform: translate(0, 0) rotate(0deg); }
-                25% { transform: translate(2px, -3px) rotate(-5deg); }
-                50% { transform: translate(0, -5px) rotate(0deg); }
-                75% { transform: translate(-2px, -3px) rotate(5deg); }
-            }
-            .moltbot-emoji {
-                animation: lobster-swim 1.5s ease-in-out infinite;
-                transform-origin: center;
-                transform-box: fill-box;
-            }
-        `)
-  }
-
   const chart = d3Selection.append('g').attr('transform', `translate(${m.left},${m.top})`)
-
-  const tooltip = new ToolTip({
-    selection: d3Selection,
-    title: '',
-    items: [],
-    position: { x: 60, y: 60, type: 'up_left' },
-    strokeColor: options.strokeColor,
-    backgroundColor: options.backgroundColor,
-  })
 
   if (options.xTickLabelType === 'Date') {
     data.datasets.forEach((dataset) => {
@@ -449,7 +403,6 @@ export function XYChart(
   if (showDots) {
     // draw dots
     const dotInitSize = 3.5 * (options.dotSize ?? 1)
-    const dotHoverSize = 6 * (options.dotSize ?? 1)
     svgChart
       .selectAll('.xkcd-chart-xycircle-group')
       .data(data.datasets)
@@ -474,68 +427,6 @@ export function XYChart(
       .attr('r', dotInitSize)
       .attr('cx', (d) => xScale(d.x) ?? 0)
       .attr('cy', (d) => yScale(d.y) ?? 0)
-      .attr('pointer-events', 'all')
-      .on('mouseover', (event, d) => {
-        if (window === undefined) {
-          return
-        }
-        const nodes = event.currentTarget.parentNode.childNodes ?? []
-        const i = [...nodes].indexOf(event.target)
-        const xyGroupIndex = Number(select(nodes[i].parentElement).attr('xy-group-index'))
-        select(nodes[i]).attr('r', dotHoverSize)
-
-        const tipX = (xScale(d.x) ?? 0) + m.left + 5
-        const tipY = (yScale(d.y) ?? 0) + m.top + 5
-        let tooltipPositionType: Position = 'down_right'
-        if (tipX > chartWidth / 2 && tipY < chartHeight / 2) {
-          tooltipPositionType = 'down_left'
-        } else if (tipX > chartWidth / 2 && tipY > chartHeight / 2) {
-          tooltipPositionType = 'up_left'
-        } else if (tipX < chartWidth / 2 && tipY > chartHeight / 2) {
-          tooltipPositionType = 'up_right'
-        }
-
-        let formattedTitle = dayjs(data.datasets[xyGroupIndex]!.data[i]!.x).format(
-          options.dateFormat,
-        )
-        if (options.xTickLabelType === 'Number') {
-          const type = getTimestampFormatUnit(
-            Number(
-              data.datasets[xyGroupIndex]!.data[1]!.x || data.datasets[xyGroupIndex]!.data[i]!.x,
-            ),
-          )
-          formattedTitle = getFormatTimeline(Number(data.datasets[xyGroupIndex]!.data[i]!.x), type)
-        }
-
-        tooltip.update({
-          title: formattedTitle,
-          items: [
-            {
-              color: options.dataColors[xyGroupIndex]!,
-              text: `${data.datasets[xyGroupIndex]!.label || ''}: ${d.y}`,
-            },
-          ],
-          position: {
-            x: tipX,
-            y: tipY,
-            type: tooltipPositionType,
-          },
-          selection: d3Selection,
-          backgroundColor: options.backgroundColor,
-          strokeColor: options.strokeColor,
-        })
-
-        tooltip.show()
-      })
-      .on('mouseout', (event) => {
-        const nodes = event.currentTarget.parentNode.childNodes ?? []
-        if (!nodes.length) {
-          return
-        }
-        const i = [...nodes].indexOf(event.target)
-        select(nodes[i]).attr('r', dotInitSize)
-        tooltip.hide()
-      })
   }
 
   // draw legend
