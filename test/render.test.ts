@@ -85,6 +85,14 @@ describe('renderStarHistorySvg', () => {
     expect(pill).toContain('1.2K')
   })
 
+  it('shows the full star count below 1000', async () => {
+    const svg = await renderStarHistorySvg({ ...baseInput, theme: 'light' })
+
+    // the latest record has 100 stars; it must stay "100", not "0.1K"
+    const pill = svg.match(/xkcd-chart-xy-end-value[^>]*>[\s\S]*?<\/g>/)?.[0] ?? ''
+    expect(pill).toContain('>100<')
+  })
+
   it('keeps the title logo clear of the centered title', async () => {
     const svg = await renderStarHistorySvg({
       ...baseInput,

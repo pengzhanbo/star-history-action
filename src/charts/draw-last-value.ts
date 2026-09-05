@@ -66,7 +66,12 @@ export function drawLastValue(
   selection: D3Selection,
   { value, x, y, color, chartWidth }: DrawLastValueConfig,
 ): void {
-  const text = getFormatNumber(value, getNumberFormatUnit(value))
+  // Values below 1000 are shown in full; larger ones use the compact K/M
+  // form. The getNumberFormatUnit threshold of 300 would shorten e.g. 800
+  // to "0.8K", which is undesirable here.
+  // 小于 1000 的数值完整显示，更大的数值才使用 K/M 紧凑形式。
+  // getNumberFormatUnit 的 300 阈值会把例如 800 简写成 "0.8K"，这里不适用。
+  const text = getFormatNumber(value, value >= 1000 ? getNumberFormatUnit(value) : 1)
   const fontSize = 14
   const height = 24
   const paddingX = 8

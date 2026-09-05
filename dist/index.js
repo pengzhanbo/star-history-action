@@ -424,7 +424,7 @@ function getContrastTextColor(color) {
 * @param config - Pill configuration / 胶囊配置
 */
 function drawLastValue(selection, { value, x, y, color, chartWidth }) {
-	const text = getFormatNumber(value, getNumberFormatUnit(value));
+	const text = getFormatNumber(value, value >= 1e3 ? getNumberFormatUnit(value) : 1);
 	const fontSize = 14;
 	const height = 24;
 	const width = text.length * 6.5 + 16;
