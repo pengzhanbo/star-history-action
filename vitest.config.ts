@@ -6,10 +6,12 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 30000,
     hookTimeout: 30000,
+    env: { TZ: 'Etc/UTC' },
     coverage: {
+      enabled: true,
       provider: 'v8',
       include: ['src/**'],
-      reporter: ['text', 'html'],
+      reporter: ['text', 'clover', 'json'],
     },
   },
 })
