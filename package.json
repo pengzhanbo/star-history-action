@@ -1,5 +1,5 @@
 {
-  "name": "star-history-action",
+  "name": "repo-star-history",
   "version": "1.0.0",
   "description": "A GitHub Action to generate a star history chart for a repository.",
   "keywords": [
@@ -7,13 +7,13 @@
     "github",
     "star-history"
   ],
-  "homepage": "https://github.com/pengzhanbo/star-history-action",
-  "bugs": "https://github.com/pengzhanbo/star-history-action/issues",
+  "homepage": "https://github.com/pengzhanbo/repo-star-history",
+  "bugs": "https://github.com/pengzhanbo/repo-star-history/issues",
   "license": "MIT",
   "author": "pengzhanbo <q942450674@outlook.com> (https://github.com/pengzhanbo)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pengzhanbo/star-history-action.git"
+    "url": "https://github.com/pengzhanbo/repo-star-history.git"
   },
   "type": "module",
   "exports": {

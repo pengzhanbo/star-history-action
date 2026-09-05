@@ -1,10 +1,10 @@
-name: star-history-action
+name: repo-star-history
 description: Get star history of a repository and write to a file
 author: pengzhanbo
 
 inputs:
   repo:
-    description: Repository name, e.g. pengzhanbo/star-history-action
+    description: Repository name, e.g. pengzhanbo/repo-star-history
     required: true
     default: ${{ github.repository }}
   token:
