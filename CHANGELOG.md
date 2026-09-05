@@ -1,3 +1,13 @@
+## [1.0.2](https://github.com/pengzhanbo/repo-star-history/compare/v1.0.1...v1.0.2) (2026-09-05)
+
+### Bug Fixes
+
+- skip lifecycle scripts in the action install step ([f31301b](https://github.com/pengzhanbo/repo-star-history/commit/f31301bcfa449c3c6a76ee3f5a0c0f75eacbdb34))
+
+### Features
+
+- label the current star count at the newest point ([53bd7bf](https://github.com/pengzhanbo/repo-star-history/commit/53bd7bf39a178bac339e18558338635e4289fec5))
+
 ## [1.0.1](https://github.com/pengzhanbo/repo-star-history/compare/v1.0.0...v1.0.1) (2026-09-05)
 
 # 1.0.0 (2026-09-05)
