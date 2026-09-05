@@ -1132,7 +1132,6 @@ function renderStarHistorySvg(input) {
 	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 	svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
 	svg.setAttribute("width", String(input.width));
-	Object.defineProperty(svg, "clientWidth", { value: input.width });
 	XYChart(svg, {
 		title: "Star History",
 		xLabel: "Date",
@@ -1145,13 +1144,15 @@ function renderStarHistorySvg(input) {
 				y: record.stars
 			}))
 		}] },
-		showDots: true,
+		showDots: false,
 		transparent: false,
 		theme: input.theme
 	}, {
 		envType: "node",
 		chartWidth: input.width
 	});
+	svg.querySelectorAll("style").forEach((el) => el.remove());
+	svg.querySelectorAll(".browser-only").forEach((el) => el.remove());
 	const output = fixJsdomSvgCasing(svg.outerHTML);
 	dom.window.close();
 	return optimize(output, { multipass: true }).data;

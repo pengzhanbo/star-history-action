@@ -69,7 +69,7 @@ export function renderStarHistorySvg(input: RenderChartInput): string {
   svg.setAttribute('width', String(input.width))
   // jsdom performs no layout, so clientWidth always reads 0. Pin the width the
   // way a browser's layout would, letting XYChart size to the svg-width input.
-  Object.defineProperty(svg, 'clientWidth', { value: input.width })
+  // Object.defineProperty(svg, 'clientWidth', { value: input.width })
 
   const data: XYChartData = {
     datasets: [
@@ -89,7 +89,7 @@ export function renderStarHistorySvg(input: RenderChartInput): string {
     xLabel: 'Date',
     yLabel: 'Stars',
     data,
-    showDots: true,
+    showDots: false,
     transparent: false,
     theme: input.theme,
   }
@@ -100,6 +100,9 @@ export function renderStarHistorySvg(input: RenderChartInput): string {
     // width so a non-empty logo is placed on-canvas, not at negative x.
     chartWidth: input.width,
   })
+
+  svg.querySelectorAll('style').forEach((el) => el.remove())
+  svg.querySelectorAll('.browser-only').forEach((el) => el.remove())
 
   const output = fixJsdomSvgCasing(svg.outerHTML)
   dom.window.close()
