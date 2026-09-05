@@ -22,9 +22,13 @@ import ToolTip from './ToolTip.js'
  *
  * 图表的基础留白，每次渲染复制一份，避免连续渲染之间相互污染状态。
  */
+// The right margin must be wide enough for half of the last x-axis tick
+// label, which is centered on the plot's right edge, or it clips outside
+// the canvas. 右留白需容下居中于绘图区右边缘的最后一个 x 轴刻度标签的一半宽度，
+// 否则会溢出画布右侧。
 const margin = {
   top: 50,
-  right: 30,
+  right: 55,
   bottom: 50,
   left: 50,
 }
@@ -270,7 +274,12 @@ export function XYChart(
 
   const filter = 'url(#xkcdify)'
   const fontFamily = options.fontFamily || 'xkcd'
-  const clientWidth = Number(svg.clientWidth ?? svg.getAttribute('width') ?? '') || 600
+  // jsdom never lays out, so clientWidth reads 0 there; treating 0 as missing
+  // lets the width attribute (the svg-width input) win in node rendering.
+  // jsdom 不做布局，clientWidth 恒为 0；将 0 视为缺失，使 node 渲染时
+  // 回退到 width 属性（即 svg-width 输入）。
+  const clientWidth =
+    Number(svg.clientWidth > 0 ? svg.clientWidth : (svg.getAttribute('width') ?? '')) || 600
   const clientHeight = (clientWidth * 2) / 3
 
   const d3Selection = select(svg)
@@ -334,8 +343,13 @@ export function XYChart(
   const allXData = allData.map((d) => d.x)
   const allYData = allData.map((d) => d.y)
 
-  const chartWidth = clientWidth - margin.left - margin.right
-  const chartHeight = clientHeight - margin.top - margin.bottom
+  // Compute the plot size from the margins actually used for the translate
+  // (`m`), not the base `margin`, so the plot's right edge lands exactly at
+  // `clientWidth - m.right` and never overflows the canvas.
+  // 绘图区尺寸应基于实际用于平移的边距 `m`（而非基础 `margin`），
+  // 使绘图区右边缘恰好落在 `clientWidth - m.right`，不会溢出画布。
+  const chartWidth = clientWidth - m.left - m.right
+  const chartHeight = clientHeight - m.top - m.bottom
 
   // NOTE: Xaxis with date type(default)
   let xScale: AxisScale<number | Date> = scaleTime()

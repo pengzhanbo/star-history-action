@@ -535,65 +535,6 @@ function drawYAxis(selection, { yScale, tickCount, fontFamily, stroke, useLogSca
 //#endregion
 //#region src/charts/draw-labels.ts
 /**
-* Title font size in px; also feeds the node-env width estimate.
-*
-* 标题字体大小（像素），同时用于 node 环境下的宽度估算。
-*/
-const TITLE_FONT_SIZE = 20;
-/**
-* Title logo (owner avatar) side length in px / 标题 logo（owner 头像）边长（像素）。
-*/
-const TITLE_LOGO_SIZE = 22;
-/**
-* Gap between the title logo and the title text in px /
-* 标题 logo 与标题文字之间的间距（像素）。
-*/
-const TITLE_LOGO_GAP = 8;
-/**
-* Estimated average glyph width per character as a fraction of the font size.
-* Used only when the environment cannot measure text (jsdom has no layout).
-*
-* 每个字符的平均宽度估算值（字体大小的比例）。仅在环境无法测量文本时
-* （jsdom 没有布局引擎）使用。
-*/
-const TITLE_TEXT_WIDTH_FACTOR = .6;
-/**
-* Measures the rendered width of a title text node; falls back to a length
-* based estimate when the environment cannot lay out text (node/jsdom).
-*
-* 测量标题文本节点的渲染宽度；当环境无法排版文本时（node/jsdom）
-* 回退到基于字数的估算。
-*
-* @param node - The appended text node / 已追加的文本节点
-* @param text - The title text, used for the estimate / 标题文字，用于估算
-* @returns The text width in px / 文本宽度（像素）
-*/
-function measureTitleTextWidth(node, text) {
-	if (node) {
-		if (typeof node.getComputedTextLength === "function") return node.getComputedTextLength();
-		if (typeof node.getBBox === "function") {
-			const width = node.getBBox().width;
-			if (width > 0) return width;
-		}
-	}
-	return text.length * TITLE_FONT_SIZE * TITLE_TEXT_WIDTH_FACTOR;
-}
-/**
-* Appends the circular clip path and the clipped logo image.
-*
-* 追加圆形裁剪路径与被裁剪的 logo 图片。
-*
-* @param selection - Selection to append into / 要追加的 selection
-* @param logoURL - Avatar URL / 头像 URL
-* @param logoX - Logo left edge position / logo 的左边缘位置
-* @param clipX - Clip circle center x, aligned with the logo center /
-*   裁剪圆圆心 x，与 logo 中心对齐
-*/
-function appendLogoAndClip(selection, logoURL, logoX, clipX) {
-	selection.append("svg").append("defs").append("clipPath").attr("id", "clip-circle-title").append("circle").attr("r", 11).attr("cx", clipX).attr("cy", 23);
-	selection.append("image").attr("x", logoX).attr("y", 12).attr("height", TITLE_LOGO_SIZE).attr("width", TITLE_LOGO_SIZE).attr("href", logoURL).attr("clip-path", "url(#clip-circle-title)");
-}
-/**
 * Draws the centered chart title, optionally with a circular owner logo.
 *
 * 绘制居中的图表标题，可选地附带圆形 owner 头像。
@@ -613,18 +554,18 @@ function appendLogoAndClip(selection, logoURL, logoX, clipX) {
 *   图表宽度（像素），用于精确放置 logo
 */
 function drawTitle(selection, text, logoURL, color, chartWidth) {
-	const svgWidth = chartWidth ?? selection.node()?.getBoundingClientRect().width ?? 0;
-	const textNode = selection.append("text").style("font-size", `${TITLE_FONT_SIZE}px`).style("font-weight", "bold").style("fill", color).attr("y", 30).attr("text-anchor", "middle").attr("x", "50%").text(text).node();
-	if (!logoURL) return;
-	if (!svgWidth) {
-		appendLogoAndClip(selection, logoURL, "38%", "39.5%");
-		return;
+	let logoX = "38%", clipX = "39.5%";
+	if (selection.node()?.getBoundingClientRect()) {
+		logoX = selection.node()?.getBoundingClientRect().width * .5 - 84;
+		clipX = selection.node()?.getBoundingClientRect().width * .5 - 73;
 	}
-	const centerX = svgWidth / 2;
-	const textWidth = measureTitleTextWidth(textNode, text);
-	const groupLeft = centerX - (30 + textWidth) / 2;
-	textNode?.setAttribute("x", String(groupLeft + TITLE_LOGO_SIZE + TITLE_LOGO_GAP + textWidth / 2));
-	appendLogoAndClip(selection, logoURL, groupLeft, groupLeft + TITLE_LOGO_SIZE / 2);
+	if (chartWidth) {
+		logoX = chartWidth * .5 - 84;
+		clipX = chartWidth * .5 - 73;
+	}
+	selection.append("text").style("font-size", "20px").style("font-weight", "bold").style("fill", color).attr("x", "50%").attr("y", 30).attr("text-anchor", "middle").text(text);
+	selection.append("svg").append("defs").append("clipPath").attr("id", "clip-circle-title").append("circle").attr("r", 11).attr("cx", clipX).attr("cy", 23);
+	if (logoURL) selection.append("image").attr("x", logoX).attr("y", 12).attr("height", 22).attr("width", 22).attr("href", logoURL).attr("clip-path", "url(#clip-circle-title)");
 }
 /**
 * Draws the centered x-axis label at the bottom of the chart.
@@ -889,7 +830,7 @@ var ToolTip = class {
 */
 const margin = {
 	top: 50,
-	right: 30,
+	right: 55,
 	bottom: 50,
 	left: 50
 };
@@ -960,7 +901,7 @@ function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, the
 	const data = { datasets };
 	const filter = "url(#xkcdify)";
 	const fontFamily = options.fontFamily || "xkcd";
-	const clientWidth = Number(svg.clientWidth ?? svg.getAttribute("width") ?? "") || 600;
+	const clientWidth = Number(svg.clientWidth > 0 ? svg.clientWidth : svg.getAttribute("width") ?? "") || 600;
 	const clientHeight = clientWidth * 2 / 3;
 	const d3Selection = select(svg).style("stroke-width", 3).style("font-family", fontFamily).style("background", options.backgroundColor).attr("width", clientWidth).attr("height", clientHeight).attr("preserveAspectRatio", "xMidYMid meet");
 	if (options.envType === "browser") d3Selection.attr("width", clientWidth <= 600 ? 600 : "100%").attr("viewBox", `0 0 ${clientWidth <= 600 ? 600 : clientWidth} ${clientHeight}`);
@@ -1002,8 +943,8 @@ function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, the
 	data.datasets.map((d) => allData.push(...d.data));
 	const allXData = allData.map((d) => d.x);
 	const allYData = allData.map((d) => d.y);
-	const chartWidth = clientWidth - margin.left - margin.right;
-	const chartHeight = clientHeight - margin.top - margin.bottom;
+	const chartWidth = clientWidth - m.left - m.right;
+	const chartHeight = clientHeight - m.top - m.bottom;
 	let xScale = scaleTime().domain([Math.min(...allXData.map((d) => Number(d))), Math.max(...allXData.map((d) => Number(d)))]).range([0, chartWidth]);
 	if (options.xTickLabelType === "Number") xScale = scaleLinear().domain([0, Math.max(...allXData.map((d) => Number(d)))]).range([0, chartWidth]);
 	let yScale;
@@ -1144,14 +1085,13 @@ function renderStarHistorySvg(input) {
 				y: record.stars
 			}))
 		}] },
-		showDots: false,
+		showDots: true,
 		transparent: false,
 		theme: input.theme
 	}, {
 		envType: "node",
 		chartWidth: input.width
 	});
-	svg.querySelectorAll("style").forEach((el) => el.remove());
 	svg.querySelectorAll(".browser-only").forEach((el) => el.remove());
 	const output = fixJsdomSvgCasing(svg.outerHTML);
 	dom.window.close();
@@ -1348,9 +1288,7 @@ async function toBase64(url) {
 	const type = res.headers.get("content-type") ?? "";
 	if (!/^image\//i.test(type)) throw new Error(`unexpected content-type "${type || "none"}"`);
 	const buf = Buffer.from(await res.arrayBuffer());
-	const compressed = Buffer.from(await optimizeImage(buf));
-	console.warn(`image: ${url}, type: ${type}, size: ${buf.length}, compressed size: ${compressed.length}`);
-	return `data:${type};base64,${compressed.toString("base64")}`;
+	return `data:${type};base64,${Buffer.from(await optimizeImage(buf)).toString("base64")}`;
 }
 //#endregion
 //#region src/index.ts

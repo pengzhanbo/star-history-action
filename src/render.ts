@@ -89,7 +89,7 @@ export function renderStarHistorySvg(input: RenderChartInput): string {
     xLabel: 'Date',
     yLabel: 'Stars',
     data,
-    showDots: false,
+    showDots: true,
     transparent: false,
     theme: input.theme,
   }
@@ -101,7 +101,6 @@ export function renderStarHistorySvg(input: RenderChartInput): string {
     chartWidth: input.width,
   })
 
-  svg.querySelectorAll('style').forEach((el) => el.remove())
   svg.querySelectorAll('.browser-only').forEach((el) => el.remove())
 
   const output = fixJsdomSvgCasing(svg.outerHTML)

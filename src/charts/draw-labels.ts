@@ -1,92 +1,6 @@
 import type { D3Selection } from './types.js'
 
 /**
- * Title font size in px; also feeds the node-env width estimate.
- *
- * 标题字体大小（像素），同时用于 node 环境下的宽度估算。
- */
-const TITLE_FONT_SIZE = 20
-/**
- * Title logo (owner avatar) side length in px / 标题 logo（owner 头像）边长（像素）。
- */
-const TITLE_LOGO_SIZE = 22
-/**
- * Gap between the title logo and the title text in px /
- * 标题 logo 与标题文字之间的间距（像素）。
- */
-const TITLE_LOGO_GAP = 8
-/**
- * Estimated average glyph width per character as a fraction of the font size.
- * Used only when the environment cannot measure text (jsdom has no layout).
- *
- * 每个字符的平均宽度估算值（字体大小的比例）。仅在环境无法测量文本时
- * （jsdom 没有布局引擎）使用。
- */
-const TITLE_TEXT_WIDTH_FACTOR = 0.6
-
-/**
- * Measures the rendered width of a title text node; falls back to a length
- * based estimate when the environment cannot lay out text (node/jsdom).
- *
- * 测量标题文本节点的渲染宽度；当环境无法排版文本时（node/jsdom）
- * 回退到基于字数的估算。
- *
- * @param node - The appended text node / 已追加的文本节点
- * @param text - The title text, used for the estimate / 标题文字，用于估算
- * @returns The text width in px / 文本宽度（像素）
- */
-function measureTitleTextWidth(node: SVGTextElement | null, text: string): number {
-  if (node) {
-    if (typeof node.getComputedTextLength === 'function') {
-      return node.getComputedTextLength()
-    }
-    if (typeof node.getBBox === 'function') {
-      const width = node.getBBox().width
-      if (width > 0) {
-        return width
-      }
-    }
-  }
-  return text.length * TITLE_FONT_SIZE * TITLE_TEXT_WIDTH_FACTOR
-}
-
-/**
- * Appends the circular clip path and the clipped logo image.
- *
- * 追加圆形裁剪路径与被裁剪的 logo 图片。
- *
- * @param selection - Selection to append into / 要追加的 selection
- * @param logoURL - Avatar URL / 头像 URL
- * @param logoX - Logo left edge position / logo 的左边缘位置
- * @param clipX - Clip circle center x, aligned with the logo center /
- *   裁剪圆圆心 x，与 logo 中心对齐
- */
-function appendLogoAndClip(
-  selection: D3Selection,
-  logoURL: string,
-  logoX: string | number,
-  clipX: string | number,
-): void {
-  selection
-    .append('svg')
-    .append('defs')
-    .append('clipPath')
-    .attr('id', 'clip-circle-title')
-    .append('circle')
-    .attr('r', 11)
-    .attr('cx', clipX)
-    .attr('cy', 12 + 11)
-  selection
-    .append('image')
-    .attr('x', logoX)
-    .attr('y', 12)
-    .attr('height', TITLE_LOGO_SIZE)
-    .attr('width', TITLE_LOGO_SIZE)
-    .attr('href', logoURL)
-    .attr('clip-path', 'url(#clip-circle-title)')
-}
-
-/**
  * Draws the centered chart title, optionally with a circular owner logo.
  *
  * 绘制居中的图表标题，可选地附带圆形 owner 头像。
@@ -112,35 +26,45 @@ export function drawTitle(
   color: string,
   chartWidth?: number,
 ): void {
-  const svgWidth = chartWidth ?? selection.node()?.getBoundingClientRect().width ?? 0
+  let logoX: string | number = '38%',
+    clipX: string | number = '39.5%'
+  if (selection.node()?.getBoundingClientRect()) {
+    logoX = (selection.node()?.getBoundingClientRect().width as number) * 0.5 - 84
+    clipX = (selection.node()?.getBoundingClientRect().width as number) * 0.5 - 73
+  }
+  if (chartWidth) {
+    logoX = chartWidth * 0.5 - 84
+    clipX = chartWidth * 0.5 - 73
+  }
 
-  const textNode = selection
+  selection
     .append('text')
-    .style('font-size', `${TITLE_FONT_SIZE}px`)
+    .style('font-size', '20px')
     .style('font-weight', 'bold')
     .style('fill', color)
+    .attr('x', '50%')
     .attr('y', 30)
     .attr('text-anchor', 'middle')
-    .attr('x', '50%')
     .text(text)
-    .node()
-
-  if (!logoURL) {
-    // Plain title: the default 50% x already centers it.
-    return
+  selection
+    .append('svg')
+    .append('defs')
+    .append('clipPath')
+    .attr('id', 'clip-circle-title')
+    .append('circle')
+    .attr('r', 11)
+    .attr('cx', clipX)
+    .attr('cy', 12 + 11)
+  if (logoURL) {
+    selection
+      .append('image')
+      .attr('x', logoX)
+      .attr('y', 12)
+      .attr('height', 22)
+      .attr('width', 22)
+      .attr('href', logoURL)
+      .attr('clip-path', 'url(#clip-circle-title)')
   }
-
-  if (!svgWidth) {
-    // No measurable width (detached element): keep the legacy percentage layout.
-    appendLogoAndClip(selection, logoURL, '38%', '39.5%')
-    return
-  }
-
-  const centerX = svgWidth / 2
-  const textWidth = measureTitleTextWidth(textNode, text)
-  const groupLeft = centerX - (TITLE_LOGO_SIZE + TITLE_LOGO_GAP + textWidth) / 2
-  textNode?.setAttribute('x', String(groupLeft + TITLE_LOGO_SIZE + TITLE_LOGO_GAP + textWidth / 2))
-  appendLogoAndClip(selection, logoURL, groupLeft, groupLeft + TITLE_LOGO_SIZE / 2)
 }
 
 /**

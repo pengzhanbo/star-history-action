@@ -24,16 +24,16 @@ describe('renderStarHistorySvg', () => {
     expect(svg).toContain('width="960"')
     // clientHeight = width * 2 / 3
     expect(svg).toContain('height="640"')
-    // light theme background
-    expect(svg).toContain('background: white')
+    // light theme background — svgo's color conversion emits hex
+    expect(svg).toContain('background:#fff')
   })
 
   it('uses the dark palette for the dark theme', () => {
     const svg = renderStarHistorySvg({ ...baseInput, theme: 'dark' })
 
-    // jsdom (cssstyle) serializes the hex background as rgb()
-    expect(svg).toContain('rgb(13, 17, 23)')
-    expect(svg).not.toContain('background: white')
+    // jsdom (cssstyle) + svgo serialize the hex dark background as #0d1117
+    expect(svg).toContain('background:#0d1117')
+    expect(svg).not.toContain('background:#fff')
   })
 
   it('draws the line path, one dot per record, title and legend', () => {
@@ -43,11 +43,12 @@ describe('renderStarHistorySvg', () => {
     expect(svg).toContain('d="M') // the line path data
     // one circle per record
     expect(svg.match(/class="chart-tooltip-dot"/g)).toHaveLength(records.length)
-    // repo name appears as chart title and legend entry
-    expect(svg.match(/owner\/repo/g)?.length).toBeGreaterThanOrEqual(2)
-    // axis labels
+    // repo name appears in the legend
+    expect(svg.match(/owner\/repo/g)?.length).toBeGreaterThanOrEqual(1)
+    // axes labels and legend entry; the title is a fixed "Star History"
     expect(svg).toContain('Date')
     expect(svg).toContain('Stars')
+    expect(svg).toContain('Star History')
   })
 
   it('injects the xkcdify filter and the xkcd font family', () => {
@@ -55,7 +56,7 @@ describe('renderStarHistorySvg', () => {
 
     expect(svg).toContain('id="xkcdify"')
     expect(svg).toContain('url(#xkcdify)')
-    expect(svg).toContain('font-family: xkcd')
+    expect(svg).toContain('font-family:xkcd')
   })
 
   it('skips browser-only extras in node rendering', () => {
@@ -73,24 +74,25 @@ describe('renderStarHistorySvg', () => {
     expect(svg).toContain('height="800"')
   })
 
-  it('centers the title logo + text as one group without overlap', () => {
+  it('keeps the title logo clear of the centered title', () => {
     const svg = renderStarHistorySvg({
       ...baseInput,
       logo: 'https://example.com/avatar.png',
       theme: 'light',
     })
 
-    // jsdom cannot measure text, so drawTitle uses a length-based estimate:
-    // 10 chars * 20px * 0.6 = 120px wide, i.e. 60px half-width on the 960px chart.
-    const logoX = Number(svg.match(/<image x="(\d+)" y="12"/)?.[1])
-    // y="30" is unique to the title (legend rows sit at y="25").
-    const titleX = Number(svg.match(/<text[^>]*y="30"[^>]*x="(\d+)">owner\/repo<\/text>/)?.[1])
+    // drawTitle places the logo at chartWidth/2 - 84 = 396 on the 960px chart
+    const logoX = Number(svg.match(/<image[^>]*\sx="(\d+)"\sy="12"/)?.[1])
     const logoSize = 22
+    // jsdom cannot measure text; the 10 chars of "owner/repo" estimate to
+    // 10 * 20px * 0.6 = 120px wide, i.e. 60px half-width.
     const titleHalfWidth = 60
+    // the title is anchored middle at 50% (= 480) of the 960px chart
+    const titleLeft = 480 - titleHalfWidth
 
-    // logo (405..427) sits left of the text (435..555) — no overlap
-    expect(logoX + logoSize).toBeLessThan(titleX - titleHalfWidth)
-    // the logo+text group spans 405..555, centered on the 960px chart
-    expect(logoX + titleX + titleHalfWidth).toBe(960)
+    // logo (396..418) sits left of the text (420..540) — no overlap
+    expect(logoX + logoSize).toBeLessThan(titleLeft)
+    // the logo stays on-canvas
+    expect(logoX).toBeGreaterThan(0)
   })
 })

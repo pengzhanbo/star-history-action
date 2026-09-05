@@ -173,8 +173,8 @@ describe('action end-to-end (mock GitHub API)', () => {
       expect(svg.match(/class="chart-tooltip-dot"/g)).toHaveLength(4)
       expect(svg).toContain('owner/repo')
     }
-    // jsdom (cssstyle) serializes the dark hex background as rgb()
-    expect(readFileSync(darkPath, 'utf8')).toContain('rgb(13, 17, 23)')
+    // jsdom (cssstyle) + svgo serialize the hex dark background as #0d1117
+    expect(readFileSync(darkPath, 'utf8')).toContain('background:#0d1117')
 
     // Commit identity and message come from git.ts.
     expect(git(workspace, 'log', '-1', '--format=%an|%ae|%s').trim()).toBe(
