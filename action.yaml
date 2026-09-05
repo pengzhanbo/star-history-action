@@ -2,6 +2,10 @@ name: repo-star-history
 description: Get star history of a repository and write to a file
 author: pengzhanbo
 
+branding:
+  icon: star
+  color: orange
+
 inputs:
   repo:
     description: Repository name, e.g. pengzhanbo/repo-star-history
