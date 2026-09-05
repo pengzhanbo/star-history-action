@@ -1,5 +1,7 @@
 # star-history-action
 
+English | [简体中文](README.zh-CN.md)
+
 A GitHub Action that fetches a repository's star history and commits an
 xkcd-style SVG chart back into the repository.
 
@@ -61,6 +63,47 @@ jobs:
   default token, and the chart does not belong on a feature branch.
 - **Output format**: always SVG — `output-filename` must end in `.svg`.
 
+## Embedding the chart in your README
+
+The generated SVG is standalone — the xkcd font is inlined — so it renders
+anywhere, including in the GitHub README of your own repository.
+
+**Single theme**: reference the chart with a relative path from the repository
+root:
+
+```markdown
+![Star History](assets/star-history.svg)
+```
+
+**Both themes** (`theme: light, dark`): the action writes two files —
+`star-history-light.svg` and `star-history-dark.svg`. Use a `<picture>` element
+to swap the chart automatically with the viewer's color scheme:
+
+```markdown
+<picture>
+  <source
+    media="(prefers-color-scheme: dark)"
+    srcset="assets/star-history-dark.svg"
+  >
+  <img
+    alt="Star History"
+    src="assets/star-history-light.svg"
+  >
+</picture>
+```
+
+Notes:
+
+- Adjust the paths if you change `output-directory` or `output-filename` (for a
+  single theme, the file keeps the input filename; for both themes, `-light` /
+  `-dark` is inserted before the extension).
+- Relative paths resolve against the repository root on the branch the README is
+  rendered from. The workflow commits and pushes the chart, so the image updates
+  once the run completes.
+- If your README lives in a subdirectory, prefix the relative path with `../`.
+- The `alt` text keeps the chart accessible and is shown when the image cannot
+  load.
+
 ## Development
 
 ```bash
@@ -75,4 +118,4 @@ after installing production dependencies.
 
 ## License
 
-ISC
+MIT
