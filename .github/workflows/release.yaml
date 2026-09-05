@@ -17,7 +17,6 @@ jobs:
     uses: ./.github/workflows/test.yaml
 
   release:
-    if: github.repository == 'pengzhanbo/vuepress-theme-plume'
     needs: [test, lint]
     runs-on: ubuntu-latest
     steps:
