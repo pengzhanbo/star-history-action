@@ -2,6 +2,7 @@ import type { XYChartConfig, XYChartData } from './charts/index.js'
 import { JSDOM } from 'jsdom'
 import { optimize } from 'svgo'
 import { XYChart } from './charts/index.js'
+import { getSubsetFontUrl } from './common/font-subset.js'
 
 /**
  * Inputs for rendering a star-history chart.
@@ -44,12 +45,19 @@ export interface RenderChartInput {
 /**
  * Renders a complete standalone SVG string for a single theme.
  *
+ * The full embedded xkcd font is swapped at the end for a woff2 subset that
+ * contains only the glyphs used by the actual chart text, cutting the inlined
+ * font from ~50KB to a few KB.
+ *
  * 为单个主题渲染完整的独立 SVG 字符串。
+ *
+ * 渲染完成后会用仅包含图表实际文本字形的小体积 woff2 子集替换内嵌的完整
+ * xkcd 字体，将内联字体从约 50KB 压缩到几 KB。
  *
  * @param input - Chart rendering inputs / 图表渲染输入
  * @returns The serialized SVG markup / 序列化后的 SVG 标记
  * @example
- * const svg = renderStarHistorySvg({
+ * const svg = await renderStarHistorySvg({
  *   repo: 'owner/repo',
  *   logo: '',
  *   records,
@@ -57,7 +65,7 @@ export interface RenderChartInput {
  *   width: 960,
  * })
  */
-export function renderStarHistorySvg(input: RenderChartInput): string {
+export async function renderStarHistorySvg(input: RenderChartInput): Promise<string> {
   // A fresh document per call avoids any cross-render residue; at most 2 calls per run.
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
   const { document } = dom.window
@@ -100,6 +108,22 @@ export function renderStarHistorySvg(input: RenderChartInput): string {
     // width so a non-empty logo is placed on-canvas, not at negative x.
     chartWidth: input.width,
   })
+
+  // Replace the full xkcd font with a woff2 subset covering only the glyphs
+  // actually used by the chart text. On subsetting failure keep the full font
+  // injected by addFont untouched.
+  const styleEl = svg.querySelector('style')
+  if (styleEl) {
+    try {
+      const chartText = Array.from(svg.querySelectorAll('text'))
+        .map((el) => el.textContent ?? '')
+        .join('')
+      const fontUrl = await getSubsetFontUrl(chartText)
+      styleEl.textContent = `@font-face { font-family: "xkcd"; src: url(${fontUrl}) format('woff2'); }`
+    } catch {
+      // Fall back to the full font added by addFont.
+    }
+  }
 
   svg.querySelectorAll('.browser-only').forEach((el) => el.remove())
 

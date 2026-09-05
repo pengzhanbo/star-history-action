@@ -19,9 +19,9 @@ describe('renderRadarSvg', () => {
     expect(svg).toContain('width="400"')
     expect(svg).toContain('height="400"')
     expect(svg).toContain('font-family:xkcd,cursive')
-    // the woff font is inlined so the SVG renders as a sandboxed <img>
+    // the ttf font is inlined so the SVG renders as a sandboxed <img>
     expect(svg).toContain('@font-face')
-    expect(svg).toContain('format("woff")')
+    expect(svg).toContain('format("truetype")')
   })
 
   it('labels all six axes', () => {

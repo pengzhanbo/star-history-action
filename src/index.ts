@@ -40,7 +40,7 @@ async function run(): Promise<void> {
 
   const chartFiles = getChartFilePaths(config)
   for (const { theme, file } of chartFiles) {
-    const svg = renderStarHistorySvg({
+    const svg = await renderStarHistorySvg({
       repo: config.repo,
       logo,
       records,

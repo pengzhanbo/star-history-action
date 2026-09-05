@@ -15,8 +15,8 @@ const baseInput = {
 }
 
 describe('renderStarHistorySvg', () => {
-  it('produces a standalone light-theme SVG sized to svg-width', () => {
-    const svg = renderStarHistorySvg({ ...baseInput, theme: 'light' })
+  it('produces a standalone light-theme SVG sized to svg-width', async () => {
+    const svg = await renderStarHistorySvg({ ...baseInput, theme: 'light' })
 
     expect(svg).toContain('<svg')
     // jsdom serializes HTML-style; standalone consumers need the explicit xmlns.
@@ -28,16 +28,16 @@ describe('renderStarHistorySvg', () => {
     expect(svg).toContain('background:#fff')
   })
 
-  it('uses the dark palette for the dark theme', () => {
-    const svg = renderStarHistorySvg({ ...baseInput, theme: 'dark' })
+  it('uses the dark palette for the dark theme', async () => {
+    const svg = await renderStarHistorySvg({ ...baseInput, theme: 'dark' })
 
     // jsdom (cssstyle) + svgo serialize the hex dark background as #0d1117
     expect(svg).toContain('background:#0d1117')
     expect(svg).not.toContain('background:#fff')
   })
 
-  it('draws the line path, one dot per record, title and legend', () => {
-    const svg = renderStarHistorySvg({ ...baseInput, theme: 'light' })
+  it('draws the line path, one dot per record, title and legend', async () => {
+    const svg = await renderStarHistorySvg({ ...baseInput, theme: 'light' })
 
     expect(svg).toContain('class="xkcd-chart-xyline"')
     expect(svg).toContain('d="M') // the line path data
@@ -51,31 +51,37 @@ describe('renderStarHistorySvg', () => {
     expect(svg).toContain('Star History')
   })
 
-  it('injects the xkcdify filter and the xkcd font family', () => {
-    const svg = renderStarHistorySvg({ ...baseInput, theme: 'light' })
+  it('injects the xkcdify filter and a subset xkcd font family', async () => {
+    const svg = await renderStarHistorySvg({ ...baseInput, theme: 'light' })
 
     expect(svg).toContain('id="xkcdify"')
     expect(svg).toContain('url(#xkcdify)')
     expect(svg).toContain('font-family:xkcd')
+    // the full embedded woff is swapped for a woff2 subset of the chart text
+    expect(svg).toContain('data:font/woff2')
+    // svgo normalizes the CSS quotes and jsdom/html escaping turns them
+    // into &quot; when serializing the <style> text content
+    expect(svg).toContain('format(&quot;woff2&quot;)')
+    expect(svg).not.toContain('application/font-woff')
   })
 
-  it('skips browser-only extras in node rendering', () => {
-    const svg = renderStarHistorySvg({ ...baseInput, theme: 'light' })
+  it('skips browser-only extras in node rendering', async () => {
+    const svg = await renderStarHistorySvg({ ...baseInput, theme: 'light' })
 
     // envType: 'node' — no animation styles, no emoji easter eggs for a neutral repo
     expect(svg).not.toContain('lobster-swim')
     expect(svg).not.toContain('browser-only')
   })
 
-  it('honors a custom svg-width', () => {
-    const svg = renderStarHistorySvg({ ...baseInput, theme: 'light', width: 1200 })
+  it('honors a custom svg-width', async () => {
+    const svg = await renderStarHistorySvg({ ...baseInput, theme: 'light', width: 1200 })
 
     expect(svg).toContain('width="1200"')
     expect(svg).toContain('height="800"')
   })
 
-  it('keeps the title logo clear of the centered title', () => {
-    const svg = renderStarHistorySvg({
+  it('keeps the title logo clear of the centered title', async () => {
+    const svg = await renderStarHistorySvg({
       ...baseInput,
       logo: 'https://example.com/avatar.png',
       theme: 'light',
