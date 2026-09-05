@@ -6,7 +6,7 @@ import {
   STARGAZERS_ACCEPT,
 } from '../common/constants.js'
 import { GITHUB_API_URL } from '../env.js'
-import { formatDate } from '../utils.js'
+import { formatDate, optimizeImage } from '../utils.js'
 
 // GitHub runners export GITHUB_API_URL; honoring it also supports enterprise GitHub.
 const API_BASE = GITHUB_API_URL.replace(/\/+$/, '')
@@ -245,5 +245,6 @@ export async function toBase64(url: string): Promise<string> {
     throw new Error(`unexpected content-type "${type || 'none'}"`)
   }
   const buf = Buffer.from(await res.arrayBuffer())
-  return `data:${type};base64,${buf.toString('base64')}`
+  const compressed = Buffer.from(await optimizeImage(buf))
+  return `data:${type};base64,${compressed.toString('base64')}`
 }

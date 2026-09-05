@@ -1,2 +1,7 @@
+allowBuilds:
+  jpegtran-bin: true
+  pngquant-bin: true
 shellEmulator: true
 trustPolicy: no-downgrade
+trustPolicyExclude:
+  - semver

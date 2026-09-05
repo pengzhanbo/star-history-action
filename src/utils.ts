@@ -1,3 +1,7 @@
+import imagemin from 'imagemin'
+import imageminJpegtran from 'imagemin-jpegtran'
+import imageminPngquant from 'imagemin-pngquant'
+
 /**
  * Formats an epoch timestamp as a UTC date string in `YYYY-MM-DD` form.
  *
@@ -10,4 +14,20 @@
  */
 export function formatDate(date: number): string {
   return new Date(date).toISOString().substring(0, 10)
+}
+
+/**
+ * Optimizes an image buffer using imagemin.
+ *
+ * 使用 imagemin 优化图像缓冲区。
+ *
+ * @param image - Image buffer to optimize / 要优化的图像缓冲区
+ * @returns The optimized image buffer / 优化后的图像缓冲区
+ * @example
+ * const optimized = await optimizeImage(buf)
+ */
+export function optimizeImage(image: Buffer): Promise<Uint8Array> {
+  return imagemin.buffer(image, {
+    plugins: [imageminJpegtran(), imageminPngquant({ quality: [0.6, 0.8] })],
+  })
 }

@@ -84,7 +84,7 @@ export function renderStarHistorySvg(input: RenderChartInput): string {
   }
 
   const config: XYChartConfig = {
-    title: input.repo,
+    title: 'Star History',
     xLabel: 'Date',
     yLabel: 'Stars',
     data,
