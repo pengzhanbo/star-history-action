@@ -11,6 +11,7 @@ import { addFilter } from './add-filter.js'
 import { addFont } from './add-font.js'
 import { drawXAxis, drawYAxis } from './draw-axis.js'
 import { drawTitle, drawXLabel, drawYLabel } from './draw-labels.js'
+import { drawLastValue } from './draw-last-value.js'
 import { drawLegend } from './draw-legend.js'
 // import { drawWatermark } from './draw-watermark.js'
 
@@ -174,6 +175,11 @@ export interface XYChartOptions {
    * Legend placement / 图例位置。
    */
   legendPosition?: LegendPosition
+  /**
+   * Draw a pill label with the current value at the newest point /
+   * 在最新数据点处绘制当前数值的胶囊标签。
+   */
+  showEndValue?: boolean
 }
 
 /**
@@ -196,6 +202,7 @@ const getDefaultOptions = (transparent: boolean): XYChartOptions => ({
   backgroundColor: transparent ? 'transparent' : 'white',
   strokeColor: 'black',
   legendPosition: 'top-left',
+  showEndValue: true,
 })
 
 /**
@@ -444,4 +451,21 @@ export function XYChart(
     chartWidth,
     chartHeight,
   })
+
+  // Label the current value at the newest point of each dataset.
+  // 在每个数据集的最新数据点处标注当前数值。
+  if (options.showEndValue) {
+    data.datasets.forEach((dataset, i) => {
+      const lastPoint = dataset.data[dataset.data.length - 1]
+      if (lastPoint) {
+        drawLastValue(svgChart, {
+          value: lastPoint.y,
+          x: xScale(lastPoint.x) ?? 0,
+          y: yScale(lastPoint.y) ?? 0,
+          color: options.dataColors[i] ?? '',
+          chartWidth,
+        })
+      }
+    })
+  }
 }

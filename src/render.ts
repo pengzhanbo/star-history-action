@@ -94,7 +94,7 @@ export async function renderStarHistorySvg(input: RenderChartInput): Promise<str
     xLabel: 'Date',
     yLabel: 'Stars',
     data,
-    showDots: true,
+    showDots: false,
     transparent: false,
     theme: input.theme,
   }

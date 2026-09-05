@@ -396,6 +396,46 @@ function drawYLabel(selection, text, color, offsetY = 6) {
 	});
 }
 //#endregion
+//#region src/charts/draw-last-value.ts
+/**
+* Picks a readable pill text color from the background luminance.
+*
+* 根据背景亮度选择可读的胶囊文字颜色。
+*
+* @param color - The pill fill color (hex) / 胶囊填充色（十六进制）
+* @returns `#000` on light fills, `#fff` otherwise / 亮色填充返回 `#000`，否则返回 `#fff`
+*/
+function getContrastTextColor(color) {
+	const hex = color.startsWith("#") ? color.slice(1) : "";
+	if (hex.length !== 6) return "#fff";
+	const r = Number.parseInt(hex.slice(0, 2), 16);
+	const g = Number.parseInt(hex.slice(2, 4), 16);
+	const b = Number.parseInt(hex.slice(4, 6), 16);
+	return (.299 * r + .587 * g + .114 * b) / 255 > .6 ? "#000" : "#fff";
+}
+/**
+* Draws a pill label with the formatted latest value at the newest point,
+* anchored above the point and flipped below it when the top would clip.
+*
+* 在最新数据点处绘制带格式化最新值的胶囊标签：默认位于点的上方，
+* 当上方超出画布时翻转到点的下方。
+*
+* @param selection - Selection to append the pill into / 要追加胶囊的 selection
+* @param config - Pill configuration / 胶囊配置
+*/
+function drawLastValue(selection, { value, x, y, color, chartWidth }) {
+	const text = getFormatNumber(value, getNumberFormatUnit(value));
+	const fontSize = 14;
+	const height = 24;
+	const width = text.length * 6.5 + 16;
+	const gap = 10;
+	const rectY = y - gap - height < 0 ? y + gap : y - gap - height;
+	const centerX = Math.min(Math.max(x, width / 2), chartWidth - width / 2);
+	const group = selection.append("g").attr("class", "xkcd-chart-xy-end-value");
+	group.append("rect").attr("x", centerX - width / 2).attr("y", rectY).attr("width", width).attr("height", height).attr("rx", height / 2).attr("ry", height / 2).attr("filter", "url(#xkcdify)").style("fill", color);
+	group.append("text").attr("x", centerX).attr("y", rectY + height / 2).attr("dy", "0.35em").attr("text-anchor", "middle").style("font-size", `${fontSize}px`).style("font-weight", "bold").style("fill", getContrastTextColor(color)).text(text);
+}
+//#endregion
 //#region src/charts/draw-legend.ts
 /**
 * Draws the dataset legend (color swatches, owner logos, labels).
@@ -472,7 +512,8 @@ const getDefaultOptions = (transparent) => ({
 	fontFamily: "xkcd",
 	backgroundColor: transparent ? "transparent" : "white",
 	strokeColor: "black",
-	legendPosition: "top-left"
+	legendPosition: "top-left",
+	showEndValue: true
 });
 /**
 * Default options for the dark theme.
@@ -599,6 +640,16 @@ function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, the
 		chartWidth,
 		chartHeight
 	});
+	if (options.showEndValue) data.datasets.forEach((dataset, i) => {
+		const lastPoint = dataset.data[dataset.data.length - 1];
+		if (lastPoint) drawLastValue(svgChart, {
+			value: lastPoint.y,
+			x: xScale(lastPoint.x) ?? 0,
+			y: yScale(lastPoint.y) ?? 0,
+			color: options.dataColors[i] ?? "",
+			chartWidth
+		});
+	});
 }
 //#endregion
 //#region src/render.ts
@@ -643,7 +694,7 @@ async function renderStarHistorySvg(input) {
 				y: record.stars
 			}))
 		}] },
-		showDots: true,
+		showDots: false,
 		transparent: false,
 		theme: input.theme
 	}, { chartWidth: input.width });

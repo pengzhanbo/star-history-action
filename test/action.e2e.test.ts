@@ -175,7 +175,8 @@ describe('action end-to-end (mock GitHub API)', () => {
       const svg = readFileSync(path, 'utf8')
       expect(svg).toContain('<svg')
       expect(svg).toContain('class="xkcd-chart-xyline"')
-      expect(svg.match(/class="chart-tooltip-dot"/g)).toHaveLength(4)
+      // showDots is disabled, so no per-record dots are drawn
+      expect(svg.match(/class="chart-tooltip-dot"/g)).toBeNull()
       expect(svg).toContain('owner/repo')
     }
     // jsdom (cssstyle) + svgo serialize the hex dark background as #0d1117

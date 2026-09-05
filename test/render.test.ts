@@ -36,13 +36,13 @@ describe('renderStarHistorySvg', () => {
     expect(svg).not.toContain('background:#fff')
   })
 
-  it('draws the line path, one dot per record, title and legend', async () => {
+  it('draws the line path, title and legend (dots disabled)', async () => {
     const svg = await renderStarHistorySvg({ ...baseInput, theme: 'light' })
 
     expect(svg).toContain('class="xkcd-chart-xyline"')
     expect(svg).toContain('d="M') // the line path data
-    // one circle per record
-    expect(svg.match(/class="chart-tooltip-dot"/g)).toHaveLength(records.length)
+    // showDots is disabled, so no per-record dots are drawn
+    expect(svg.match(/class="chart-tooltip-dot"/g)).toBeNull()
     // repo name appears in the legend
     expect(svg.match(/owner\/repo/g)?.length).toBeGreaterThanOrEqual(1)
     // axes labels and legend entry; the title is a fixed "Star History"
@@ -70,6 +70,19 @@ describe('renderStarHistorySvg', () => {
 
     expect(svg).toContain('width="1200"')
     expect(svg).toContain('height="800"')
+  })
+
+  it('labels the current star count at the newest point', async () => {
+    const svg = await renderStarHistorySvg({
+      ...baseInput,
+      records: [...records, { date: '2024-04-01', stars: 1234 }],
+      theme: 'light',
+    })
+
+    // the end-value pill renders and carries the compact-formatted latest count
+    const pill = svg.match(/xkcd-chart-xy-end-value[^>]*>[\s\S]*?<\/g>/)?.[0] ?? ''
+    expect(pill).toContain('xkcd-chart-xy-end-value')
+    expect(pill).toContain('1.2K')
   })
 
   it('keeps the title logo clear of the centered title', async () => {
