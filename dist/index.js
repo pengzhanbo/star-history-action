@@ -3,6 +3,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getInput, info, setFailed } from "@actions/core";
 import { execFileSync, spawnSync } from "node:child_process";
 import { JSDOM } from "jsdom";
+import { optimize } from "svgo";
 import { isInteger, promiseParallel, range, uniq, withTimeout } from "@pengzhanbo/utils";
 import { scaleLinear, scaleSymlog, scaleTime } from "d3-scale";
 import { select } from "d3-selection";
@@ -11,6 +12,9 @@ import dayjs from "dayjs";
 import { axisBottom, axisLeft } from "d3-axis";
 import duration from "dayjs/plugin/duration.js";
 import relativeTime from "dayjs/plugin/relativeTime.js";
+import imagemin from "imagemin";
+import imageminJpegtran from "imagemin-jpegtran";
+import imageminPngquant from "imagemin-pngquant";
 //#region src/common/constants.ts
 const REQUEST_TIMEOUT_MS = 15e3;
 const REPO_INFO_ACCEPT = "application/vnd.github+json";
@@ -1129,19 +1133,18 @@ function renderStarHistorySvg(input) {
 	svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
 	svg.setAttribute("width", String(input.width));
 	Object.defineProperty(svg, "clientWidth", { value: input.width });
-	const data = { datasets: [{
-		label: input.repo,
-		logo: input.logo,
-		data: input.records.map((record) => ({
-			x: /* @__PURE__ */ new Date(`${record.date}T00:00:00Z`),
-			y: record.stars
-		}))
-	}] };
 	XYChart(svg, {
-		title: input.repo,
+		title: "Star History",
 		xLabel: "Date",
 		yLabel: "Stars",
-		data,
+		data: { datasets: [{
+			label: input.repo,
+			logo: input.logo,
+			data: input.records.map((record) => ({
+				x: /* @__PURE__ */ new Date(`${record.date}T00:00:00Z`),
+				y: record.stars
+			}))
+		}] },
 		showDots: true,
 		transparent: false,
 		theme: input.theme
@@ -1149,9 +1152,12 @@ function renderStarHistorySvg(input) {
 		envType: "node",
 		chartWidth: input.width
 	});
-	const output = svg.outerHTML;
+	const output = fixJsdomSvgCasing(svg.outerHTML);
 	dom.window.close();
-	return output;
+	return optimize(output, { multipass: true }).data;
+}
+function fixJsdomSvgCasing(svgContent) {
+	return svgContent.replace(/feturbulence/g, "feTurbulence").replace(/fedisplacementmap/g, "feDisplacementMap").replace(/filterunits/g, "filterUnits").replace(/basefrequency/g, "baseFrequency").replace(/xchannelselector/g, "xChannelSelector").replace(/ychannelselector/g, "yChannelSelector").replace(/\btextlength=/g, "textLength=").replace(/\blengthadjust=/g, "lengthAdjust=");
 }
 //#endregion
 //#region src/utils.ts
@@ -1167,6 +1173,19 @@ function renderStarHistorySvg(input) {
 */
 function formatDate(date) {
 	return new Date(date).toISOString().substring(0, 10);
+}
+/**
+* Optimizes an image buffer using imagemin.
+*
+* 使用 imagemin 优化图像缓冲区。
+*
+* @param image - Image buffer to optimize / 要优化的图像缓冲区
+* @returns The optimized image buffer / 优化后的图像缓冲区
+* @example
+* const optimized = await optimizeImage(buf)
+*/
+function optimizeImage(image) {
+	return imagemin.buffer(image, { plugins: [imageminJpegtran(), imageminPngquant({ quality: [.6, .8] })] });
 }
 //#endregion
 //#region src/services/api.ts
@@ -1327,7 +1346,10 @@ async function toBase64(url) {
 	if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
 	const type = res.headers.get("content-type") ?? "";
 	if (!/^image\//i.test(type)) throw new Error(`unexpected content-type "${type || "none"}"`);
-	return `data:${type};base64,${Buffer.from(await res.arrayBuffer()).toString("base64")}`;
+	const buf = Buffer.from(await res.arrayBuffer());
+	const compressed = Buffer.from(await optimizeImage(buf));
+	console.warn(`image: ${url}, type: ${type}, size: ${buf.length}, compressed size: ${compressed.length}`);
+	return `data:${type};base64,${compressed.toString("base64")}`;
 }
 //#endregion
 //#region src/index.ts
