@@ -246,5 +246,8 @@ export async function toBase64(url: string): Promise<string> {
   }
   const buf = Buffer.from(await res.arrayBuffer())
   const compressed = Buffer.from(await optimizeImage(buf))
+  console.warn(
+    `image: ${url}, type: ${type}, size: ${buf.length}, compressed size: ${compressed.length}`,
+  )
   return `data:${type};base64,${compressed.toString('base64')}`
 }

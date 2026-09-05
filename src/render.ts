@@ -1,5 +1,6 @@
 import type { XYChartConfig, XYChartData } from './charts/index.js'
 import { JSDOM } from 'jsdom'
+import { optimize } from 'svgo'
 import { XYChart } from './charts/index.js'
 
 /**
@@ -100,7 +101,24 @@ export function renderStarHistorySvg(input: RenderChartInput): string {
     chartWidth: input.width,
   })
 
-  const output = svg.outerHTML
+  const output = fixJsdomSvgCasing(svg.outerHTML)
   dom.window.close()
-  return output
+  return optimize(output, { multipass: true }).data
+}
+
+function fixJsdomSvgCasing(svgContent: string): string {
+  return (
+    svgContent
+      .replace(/feturbulence/g, 'feTurbulence')
+      .replace(/fedisplacementmap/g, 'feDisplacementMap')
+      .replace(/filterunits/g, 'filterUnits')
+      .replace(/basefrequency/g, 'baseFrequency')
+      .replace(/xchannelselector/g, 'xChannelSelector')
+      .replace(/ychannelselector/g, 'yChannelSelector')
+      // Set by drawTitle on a <text> under the HTML-namespace root, where JSDOM
+      // lowercases attribute names. Matched with the "=" so a repo name that
+      // happens to contain the word is left alone.
+      .replace(/\btextlength=/g, 'textLength=')
+      .replace(/\blengthadjust=/g, 'lengthAdjust=')
+  )
 }

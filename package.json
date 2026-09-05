@@ -31,7 +31,8 @@
     "imagemin": "^9.0.1",
     "imagemin-jpegtran": "^8.0.0",
     "imagemin-pngquant": "^10.0.0",
-    "jsdom": "^30.0.1"
+    "jsdom": "^30.0.1",
+    "svgo": "^4.1.0"
   },
   "devDependencies": {
     "@pengzhanbo/oxc-config": "^2.9.1",
