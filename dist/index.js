@@ -13,9 +13,7 @@ import subsetFont from "subset-font";
 import { axisBottom, axisLeft } from "d3-axis";
 import duration from "dayjs/plugin/duration.js";
 import relativeTime from "dayjs/plugin/relativeTime.js";
-import imagemin from "imagemin";
-import jpg from "imagemin-jpegtran";
-import png from "imagemin-pngquant";
+import sharp from "sharp";
 import { execFileSync, spawnSync } from "node:child_process";
 //#region src/common/constants.ts
 const REQUEST_TIMEOUT_MS = 15e3;
@@ -660,12 +658,15 @@ async function renderStarHistorySvg(input) {
 function fixJsdomSvgCasing(svgContent) {
 	return svgContent.replace(/feturbulence/g, "feTurbulence").replace(/fedisplacementmap/g, "feDisplacementMap").replace(/filterunits/g, "filterUnits").replace(/basefrequency/g, "baseFrequency").replace(/xchannelselector/g, "xChannelSelector").replace(/ychannelselector/g, "yChannelSelector").replace(/\btextlength=/g, "textLength=").replace(/\blengthadjust=/g, "lengthAdjust=");
 }
-//#endregion
-//#region src/common/image-min.ts
 /**
-* Optimizes an image buffer using imagemin.
+* Optimizes an image buffer: scales it down to `AVATAR_SIZE` and compresses
+* it with quality loss (jpeg/webp/avif) or palette quantization (png) so the
+* base64-embedded logo stays small. SVG inputs and undecodable buffers are
+* returned untouched.
 *
-* 使用 imagemin 优化图像缓冲区。
+* 优化图像缓冲区：将图像缩放到 `AVATAR_SIZE`，并以有损方式压缩
+* （jpeg/webp/avif）或调色板量化（png），使 base64 内嵌的 logo 保持较小。
+* SVG 输入与无法解码的缓冲区原样返回。
 *
 * @param image - Image buffer to optimize / 要优化的图像缓冲区
 * @returns The optimized image buffer / 优化后的图像缓冲区
@@ -674,8 +675,23 @@ function fixJsdomSvgCasing(svgContent) {
 * const optimized = await optimizeImage(buf)
 * ```
 */
-function optimizeImage(image) {
-	return imagemin.buffer(image, { plugins: [jpg(), png({ quality: [.6, .8] })] });
+async function optimizeImage(image) {
+	try {
+		const img = sharp(image);
+		const { format } = await img.metadata();
+		if (!format || format === "svg") return image;
+		const resized = img.resize({
+			width: 128,
+			height: 128,
+			fit: "cover"
+		});
+		return await (format === "jpeg" ? resized.jpeg({ quality: 70 }) : format === "png" ? resized.png({
+			palette: true,
+			quality: 70
+		}) : format === "webp" ? resized.webp({ quality: 70 }) : format === "heif" ? resized.avif({ quality: 70 }) : resized).toBuffer();
+	} catch {
+		return image;
+	}
 }
 //#endregion
 //#region src/services/env.ts
@@ -888,7 +904,13 @@ async function getRepoStarRecords(repo, token, maxRequestAmount) {
 async function getRepoLogo(repo, token) {
 	const owner = repo.split("/")[0];
 	const response = await request(`${API_BASE}/users/${owner}`, token);
-	if (response.ok) return (await response.json()).avatar_url || "";
+	if (response.ok) {
+		const data = await response.json();
+		if (!data.avatar_url) return "";
+		const url = new URL(data.avatar_url);
+		url.searchParams.set("s", String(128));
+		return url.toString();
+	}
 	return "";
 }
 async function toBase64(url) {

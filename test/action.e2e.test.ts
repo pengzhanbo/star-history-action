@@ -118,10 +118,15 @@ beforeAll(async () => {
       return
     }
     if (url.pathname === '/users/owner/avatar.png') {
-      // The action base64-encodes the avatar as an inline <img>; it only
-      // checks status + content-type, so the bytes themselves are irrelevant.
+      // The action base64-encodes the avatar as an inline <img>; a real 1x1
+      // PNG lets sharp resize/encode it during optimization.
       res.setHeader('content-type', 'image/png')
-      res.end(Buffer.from('fake-png-bytes'))
+      res.end(
+        Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+          'base64',
+        ),
+      )
       return
     }
     res.statusCode = 404

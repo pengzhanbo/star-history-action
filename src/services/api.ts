@@ -5,7 +5,7 @@ import {
   REPO_INFO_ACCEPT,
   STARGAZERS_ACCEPT,
 } from '../common/constants.js'
-import { optimizeImage } from '../common/image-min.js'
+import { AVATAR_SIZE, optimizeImage } from '../common/image-min.js'
 import { GITHUB_API_URL } from './env.js'
 import { formatDate } from './utils.js'
 
@@ -227,7 +227,13 @@ export async function getRepoLogo(repo: string, token: string): Promise<string> 
   const response = await request(`${API_BASE}/users/${owner}`, token)
   if (response.ok) {
     const data = (await response.json()) as { avatar_url: string }
-    return data.avatar_url || ''
+    if (!data.avatar_url) {
+      return ''
+    }
+    // Request a small avatar at the source so the embedded base64 stays small.
+    const url = new URL(data.avatar_url)
+    url.searchParams.set('s', String(AVATAR_SIZE))
+    return url.toString()
   }
   return ''
 }

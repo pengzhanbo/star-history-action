@@ -120,7 +120,7 @@ describe('getRepoLogo', () => {
   it('returns the owner avatar_url', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ avatar_url: 'https://avatars.test/o.png' }))
 
-    await expect(getRepoLogo('owner/repo', TOKEN)).resolves.toBe('https://avatars.test/o.png')
+    await expect(getRepoLogo('owner/repo', TOKEN)).resolves.toBe('https://avatars.test/o.png?s=128')
     expect(callUrl(fetchMock.mock.calls[0]![0])).toBe('https://api.github.test/users/owner')
   })
 
