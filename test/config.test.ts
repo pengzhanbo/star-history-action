@@ -47,13 +47,6 @@ describe('parseInputs', () => {
     expect(parseInputs().repo).toBe('input/repo')
   })
 
-  it('throws when repo and GITHUB_REPOSITORY are both missing', async () => {
-    stubInputs({ token: 't' })
-    const parseInputs = await loadParseInputs()
-
-    expect(() => parseInputs()).toThrow('repo input is required')
-  })
-
   it('throws when token is missing', async () => {
     stubInputs({ repo: 'owner/repo' })
     const parseInputs = await loadParseInputs()

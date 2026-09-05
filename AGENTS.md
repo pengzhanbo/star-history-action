@@ -90,7 +90,7 @@ No `typecheck`, `dev`, or `run` scripts exist. Type checking rides on oxlint's `
 
 ## Testing & QA
 
-- **Vitest is configured** (`vitest.config.ts`, jsdom environment; `pnpm test` runs it). The suites live in `test/`: unit tests for `config.ts`, `services/api.ts` (fetch-mocked incl. GHES enum support), `git.ts`, `render.ts`, plus a hermetic end-to-end `action.e2e.test.ts` that rebuilds `dist/` when stale and exercises the real `dist/index.js` against a local mock GitHub API (`GITHUB_API_URL`) with `GITHUB_WORKSPACE`/`INPUT_*` env in a scratch repo — asserting commit author, pushed branch, chart files, idempotent reruns, and request budgets.
+- **Vitest is configured** (`vitest.config.ts`, jsdom environment; `pnpm test` runs it). The suites live in `test/`: unit tests for `config.ts`, `services/api.ts` (fetch-mocked incl. GHES enum support), `render.ts`, plus a hermetic end-to-end `action.e2e.test.ts` that rebuilds `dist/` when stale and exercises the real `dist/index.js` against a local mock GitHub API (`GITHUB_API_URL`) with `GITHUB_WORKSPACE`/`INPUT_*` env in a scratch repo — asserting commit author, pushed branch, chart files, idempotent reruns, and request budgets.
 - QA surface: `pnpm lint` (oxlint type-aware + oxfmt check), `pnpm build` (typechecked emit), and `pnpm test --run` (single pass, no watch). `--run` differs from the Watch-mode default of the bare `pnpm test` script.
 - Coverage expectations: none defined (`@vitest/coverage-v8` is present but unused).
 - DOM-y tests use jsdom (a runtime dep): `xy-chart.ts` needs a real `SVGSVGElement`; node guards exist for text measurement. Pure helpers (`radar-svg.ts`, `get-format-*`) are trivially testable without DOM.
