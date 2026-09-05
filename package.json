@@ -40,6 +40,7 @@
     "dayjs": "^1.11.23",
     "jsdom": "^30.0.1",
     "sharp": "^0.35.4",
+    "simple-git-hooks": "^2.14.0",
     "subset-font": "^2.7.0",
     "svgo": "^4.1.0"
   },
@@ -61,7 +62,6 @@
     "oxfmt": "^0.66.0",
     "oxlint": "^1.81.0",
     "oxlint-tsgolint": "^7.0.2001",
-    "simple-git-hooks": "^2.14.0",
     "tsdown": "^0.23.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
