@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { getRepoLogo, getRepoStarRecords, getRepoStargazers, request } from '../src/services/api.js'
-import { formatDate } from '../src/utils.js'
+import { formatDate } from '../src/services/utils.js'
 
 // api.ts computes API_BASE from GITHUB_API_URL at module evaluation; pin it
 // so the asserted request URLs stay deterministic.

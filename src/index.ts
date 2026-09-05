@@ -2,11 +2,11 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { info, setFailed } from '@actions/core'
 import { DEFAULT_MAX_REQUEST_AMOUNT } from './common/constants.js'
-import { getChartFilePaths, parseInputs } from './config.js'
-import { GITHUB_WORKSPACE } from './env.js'
-import { commitAndPush } from './git.js'
 import { renderStarHistorySvg } from './render.js'
 import { getRepoLogo, getRepoStarRecords, toBase64 } from './services/api.js'
+import { getChartFilePaths, parseInputs } from './services/config.js'
+import { GITHUB_WORKSPACE } from './services/env.js'
+import { commitAndPush } from './services/git.js'
 
 /**
  * Runs the full action pipeline: parse → fetch → render → write → commit/push.

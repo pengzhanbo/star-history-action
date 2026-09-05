@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getInput, info, setFailed } from "@actions/core";
-import { execFileSync, spawnSync } from "node:child_process";
 import { JSDOM } from "jsdom";
 import { optimize } from "svgo";
 import { isInteger, promiseParallel, range, uniq, withTimeout } from "@pengzhanbo/utils";
@@ -15,246 +14,13 @@ import { axisBottom, axisLeft } from "d3-axis";
 import duration from "dayjs/plugin/duration.js";
 import relativeTime from "dayjs/plugin/relativeTime.js";
 import imagemin from "imagemin";
-import imageminJpegtran from "imagemin-jpegtran";
-import imageminPngquant from "imagemin-pngquant";
+import jpg from "imagemin-jpegtran";
+import png from "imagemin-pngquant";
+import { execFileSync, spawnSync } from "node:child_process";
 //#region src/common/constants.ts
 const REQUEST_TIMEOUT_MS = 15e3;
 const REPO_INFO_ACCEPT = "application/vnd.github+json";
 const STARGAZERS_ACCEPT = "application/vnd.github.v3.star+json";
-//#endregion
-//#region src/env.ts
-/**
-* Base URL of the GitHub API; honoring `GITHUB_API_URL` also supports
-* GitHub Enterprise Server instances.
-*
-* GitHub API 的基础 URL；识别 `GITHUB_API_URL` 同时也兼容 GitHub
-* Enterprise Server 实例。
-*/
-const GITHUB_API_URL = process.env["GITHUB_API_URL"] ?? "https://api.github.com";
-/**
-* The current repository in `owner/repo` form; empty on local runs.
-*
-* 当前仓库的 `owner/repo` 标识；本地运行时为空字符串。
-*/
-const GITHUB_REPOSITORY = process.env["GITHUB_REPOSITORY"] ?? "";
-/**
-* Base URL of the GitHub server, used to build the authenticated push URL.
-*
-* GitHub 服务器的基础 URL，用于构造带认证的推送地址。
-*/
-const GITHUB_SERVER_URL = process.env["GITHUB_SERVER_URL"] ?? "https://github.com";
-/**
-* Name of the event that triggered the workflow (e.g. `push`, `pull_request`).
-*
-* 触发工作流的事件名称（例如 `push`、`pull_request`）。
-*/
-const GITHUB_EVENT_NAME = process.env["GITHUB_EVENT_NAME"] ?? "";
-/**
-* Head ref (source branch) of a pull request; empty outside PR events.
-*
-* 拉取请求的源分支引用；非 PR 事件时为空字符串。
-*/
-const GITHUB_HEAD_REF = process.env["GITHUB_HEAD_REF"] ?? "";
-/**
-* Name of the branch or tag the run is based on.
-*
-* 运行所基于的分支或标签名称。
-*/
-const GITHUB_REF_NAME = process.env["GITHUB_REF_NAME"] ?? "";
-/**
-* Absolute path of the checked-out repository on the runner; empty on local runs.
-*
-* runner 上检出仓库的绝对路径；本地运行时为空字符串。
-*/
-const GITHUB_WORKSPACE = process.env["GITHUB_WORKSPACE"] ?? "";
-//#endregion
-//#region src/config.ts
-/**
-* Chart themes supported by the action.
-*
-* 动作支持的图表主题。
-*/
-const THEMES = ["light", "dark"];
-/**
-* Type guard narrowing a string to a known chart theme.
-*
-* 将字符串收窄为已知图表主题的类型守卫。
-*
-* @param value - Theme string to validate / 待校验的主题字符串
-* @returns True when the value is `light` or `dark` / 当值为 `light` 或 `dark` 时为真
-*/
-function isTheme(value) {
-	return THEMES.includes(value);
-}
-/**
-* Reads and validates all action inputs from the runner environment.
-*
-* 从 runner 环境中读取并校验全部动作输入。
-*
-* @returns The parsed and validated configuration / 解析并校验后的配置
-* @throws {Error} When a required input is missing or a value is invalid / 当必填输入缺失或取值非法时抛出错误
-* @example
-* // On a GitHub runner, inputs arrive as INPUT_* env vars.
-* const config = parseInputs()
-*/
-function parseInputs() {
-	const repo = getInput("repo") || GITHUB_REPOSITORY;
-	if (!repo) throw new Error("repo input is required");
-	const token = getInput("token");
-	if (!token) throw new Error("token input is required");
-	const outputDirectory = getInput("output-directory") || "assets";
-	if (isAbsolute(outputDirectory)) throw new Error(`output-directory must be a relative path, got "${outputDirectory}"`);
-	const outputFilename = getInput("output-filename") || "star-history.svg";
-	if (outputFilename.length === 0 || outputFilename.includes("/") || outputFilename.includes("\\")) throw new Error(`output-filename must be a file name without path separators, got "${outputFilename}"`);
-	if (!/\.svg$/i.test(outputFilename)) throw new Error(`output-filename must end with .svg, got "${outputFilename}"`);
-	const rawWidth = getInput("svg-width") || "960";
-	const svgWidth = Number(rawWidth);
-	if (!Number.isInteger(svgWidth) || svgWidth < 1) throw new Error(`svg-width must be a positive integer, got "${rawWidth}"`);
-	const themes = [];
-	const rawTheme = getInput("theme");
-	if (rawTheme) for (const value of rawTheme.split(/[,，\s]+/)) {
-		const theme = value.trim().toLowerCase();
-		if (!theme) continue;
-		if (!isTheme(theme)) throw new Error(`theme "${value}" is invalid; use light, dark, or light, dark`);
-		if (!themes.includes(theme)) themes.push(theme);
-	}
-	if (themes.length === 0) themes.push("light");
-	return {
-		repo,
-		token,
-		outputDirectory,
-		outputFilename,
-		svgWidth,
-		themes
-	};
-}
-/**
-* Maps the requested themes to concrete chart file names.
-*
-* 将请求的主题映射为具体的图表文件名。
-*
-* @param config - Parsed action inputs / 解析后的动作输入
-* @returns One entry per theme: single-theme runs keep the input filename;
-*   multi-theme runs derive `-light`/`-dark` variants /
-*   每个主题一个条目：单主题运行保留输入文件名；多主题运行派生
-*   `-light`/`-dark` 变体
-* @example
-* getChartFilePaths({ ...themes: ['light', 'dark'], outputFilename: 'chart.svg' })
-* // [{ theme: 'light', file: 'chart-light.svg' }, { theme: 'dark', file: 'chart-dark.svg' }]
-*/
-function getChartFilePaths(config) {
-	if (config.themes.length === 1) return [{
-		theme: config.themes[0],
-		file: config.outputFilename
-	}];
-	const i = config.outputFilename.lastIndexOf(".");
-	const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
-	const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename;
-	return [{
-		theme: "light",
-		file: `${stem}-light${ext}`
-	}, {
-		theme: "dark",
-		file: `${stem}-dark${ext}`
-	}];
-}
-//#endregion
-//#region src/git.ts
-/**
-* Runs a git command and throws a readable error on failure.
-*
-* 执行 git 命令，失败时抛出可读的错误信息。
-*
-* @param cwd - Directory to run git in / 执行 git 的目录
-* @param args - Git arguments after `git` / `git` 之后的命令行参数
-* @returns The trimmed stdout of the command / 命令的 stdout 输出（去除首尾空白）
-* @throws {Error} With the captured stderr when the command exits non-zero /
-*   命令以非零状态退出时抛出，包含捕获的 stderr
-*/
-function runGit(cwd, args) {
-	try {
-		return execFileSync("git", args, {
-			cwd,
-			stdio: [
-				"ignore",
-				"pipe",
-				"pipe"
-			]
-		}).toString();
-	} catch (error) {
-		const stderr = error.stderr?.toString() ?? "";
-		throw new Error(`git ${args.join(" ")} failed: ${stderr.trim() || String(error)}`);
-	}
-}
-/**
-* Commits the chart files as `github-actions[bot]` and pushes them.
-*
-* Idempotent: runs with no staged changes skip the commit. On `pull_request`
-* events the whole write-back is skipped — forked PRs cannot be pushed with
-* the default token, and the chart does not belong on a feature branch.
-*
-* 以 `github-actions[bot]` 身份提交图表文件并推送。
-*
-* 幂等设计：无暂存变更时跳过提交。在 `pull_request` 事件下整个写回过程会被
-* 跳过——fork 的 PR 无法使用默认令牌推送，图表也不应提交到特性分支。
-*
-* @param options - Commit and push configuration / 提交与推送配置
-* @example
-* commitAndPush({ cwd: workspace, files: ['assets/star-history.svg'], token })
-*/
-function commitAndPush({ cwd, files, token }) {
-	if (GITHUB_EVENT_NAME === "pull_request") {
-		info("pull_request context: skipping commit and push");
-		return;
-	}
-	runGit(cwd, ["rev-parse", "--is-inside-work-tree"]);
-	runGit(cwd, [
-		"add",
-		"--",
-		...files
-	]);
-	const diffCheck = spawnSync("git", [
-		"diff",
-		"--cached",
-		"--quiet"
-	], {
-		cwd,
-		stdio: [
-			"ignore",
-			"pipe",
-			"pipe"
-		]
-	});
-	if (diffCheck.status === 0) {
-		info("no chart changes; skipping commit and push");
-		return;
-	}
-	if (diffCheck.status !== 1) {
-		const stderr = diffCheck.stderr?.toString() ?? "";
-		throw new Error(`git diff --cached --quiet failed: ${stderr.trim()}`);
-	}
-	runGit(cwd, [
-		"-c",
-		"user.name=github-actions[bot]",
-		"-c",
-		"user.email=41898282+github-actions[bot]@users.noreply.github.com",
-		"commit",
-		"-m",
-		"chore: update star history chart"
-	]);
-	if (GITHUB_REPOSITORY) {
-		const host = new URL(GITHUB_SERVER_URL).host;
-		runGit(cwd, [
-			"push",
-			`https://x-access-token:${encodeURIComponent(token)}@${host}/${GITHUB_REPOSITORY}.git`,
-			`HEAD:refs/heads/${GITHUB_HEAD_REF || GITHUB_REF_NAME || "main"}`
-		]);
-	} else runGit(cwd, [
-		"push",
-		"origin",
-		"HEAD"
-	]);
-}
 //#endregion
 //#region src/common/colors.ts
 /**
@@ -1146,7 +912,70 @@ function fixJsdomSvgCasing(svgContent) {
 	return svgContent.replace(/feturbulence/g, "feTurbulence").replace(/fedisplacementmap/g, "feDisplacementMap").replace(/filterunits/g, "filterUnits").replace(/basefrequency/g, "baseFrequency").replace(/xchannelselector/g, "xChannelSelector").replace(/ychannelselector/g, "yChannelSelector").replace(/\btextlength=/g, "textLength=").replace(/\blengthadjust=/g, "lengthAdjust=");
 }
 //#endregion
-//#region src/utils.ts
+//#region src/common/image-min.ts
+/**
+* Optimizes an image buffer using imagemin.
+*
+* 使用 imagemin 优化图像缓冲区。
+*
+* @param image - Image buffer to optimize / 要优化的图像缓冲区
+* @returns The optimized image buffer / 优化后的图像缓冲区
+* @example
+* ```ts
+* const optimized = await optimizeImage(buf)
+* ```
+*/
+function optimizeImage(image) {
+	return imagemin.buffer(image, { plugins: [jpg(), png({ quality: [.6, .8] })] });
+}
+//#endregion
+//#region src/services/env.ts
+/**
+* Base URL of the GitHub API; honoring `GITHUB_API_URL` also supports
+* GitHub Enterprise Server instances.
+*
+* GitHub API 的基础 URL；识别 `GITHUB_API_URL` 同时也兼容 GitHub
+* Enterprise Server 实例。
+*/
+const GITHUB_API_URL = process.env["GITHUB_API_URL"] ?? "https://api.github.com";
+/**
+* The current repository in `owner/repo` form; empty on local runs.
+*
+* 当前仓库的 `owner/repo` 标识；本地运行时为空字符串。
+*/
+const GITHUB_REPOSITORY = process.env["GITHUB_REPOSITORY"] ?? "";
+/**
+* Base URL of the GitHub server, used to build the authenticated push URL.
+*
+* GitHub 服务器的基础 URL，用于构造带认证的推送地址。
+*/
+const GITHUB_SERVER_URL = process.env["GITHUB_SERVER_URL"] ?? "https://github.com";
+/**
+* Name of the event that triggered the workflow (e.g. `push`, `pull_request`).
+*
+* 触发工作流的事件名称（例如 `push`、`pull_request`）。
+*/
+const GITHUB_EVENT_NAME = process.env["GITHUB_EVENT_NAME"] ?? "";
+/**
+* Head ref (source branch) of a pull request; empty outside PR events.
+*
+* 拉取请求的源分支引用；非 PR 事件时为空字符串。
+*/
+const GITHUB_HEAD_REF = process.env["GITHUB_HEAD_REF"] ?? "";
+/**
+* Name of the branch or tag the run is based on.
+*
+* 运行所基于的分支或标签名称。
+*/
+const GITHUB_REF_NAME = process.env["GITHUB_REF_NAME"] ?? "";
+/**
+* Absolute path of the checked-out repository on the runner; empty on local runs.
+*
+* runner 上检出仓库的绝对路径；本地运行时为空字符串。
+*/
+const GITHUB_WORKSPACE = process.env["GITHUB_WORKSPACE"] ?? "";
+//#endregion
+//#region src/services/utils.ts
 /**
 * Formats an epoch timestamp as a UTC date string in `YYYY-MM-DD` form.
 *
@@ -1159,19 +988,6 @@ function fixJsdomSvgCasing(svgContent) {
 */
 function formatDate(date) {
 	return new Date(date).toISOString().substring(0, 10);
-}
-/**
-* Optimizes an image buffer using imagemin.
-*
-* 使用 imagemin 优化图像缓冲区。
-*
-* @param image - Image buffer to optimize / 要优化的图像缓冲区
-* @returns The optimized image buffer / 优化后的图像缓冲区
-* @example
-* const optimized = await optimizeImage(buf)
-*/
-function optimizeImage(image) {
-	return imagemin.buffer(image, { plugins: [imageminJpegtran(), imageminPngquant({ quality: [.6, .8] })] });
 }
 //#endregion
 //#region src/services/api.ts
@@ -1334,6 +1150,194 @@ async function toBase64(url) {
 	if (!/^image\//i.test(type)) throw new Error(`unexpected content-type "${type || "none"}"`);
 	const buf = Buffer.from(await res.arrayBuffer());
 	return `data:${type};base64,${Buffer.from(await optimizeImage(buf)).toString("base64")}`;
+}
+//#endregion
+//#region src/services/config.ts
+/**
+* Chart themes supported by the action.
+*
+* 动作支持的图表主题。
+*/
+const THEMES = ["light", "dark"];
+/**
+* Type guard narrowing a string to a known chart theme.
+*
+* 将字符串收窄为已知图表主题的类型守卫。
+*
+* @param value - Theme string to validate / 待校验的主题字符串
+* @returns True when the value is `light` or `dark` / 当值为 `light` 或 `dark` 时为真
+*/
+function isTheme(value) {
+	return THEMES.includes(value);
+}
+/**
+* Reads and validates all action inputs from the runner environment.
+*
+* 从 runner 环境中读取并校验全部动作输入。
+*
+* @returns The parsed and validated configuration / 解析并校验后的配置
+* @throws {Error} When a required input is missing or a value is invalid / 当必填输入缺失或取值非法时抛出错误
+* @example
+* // On a GitHub runner, inputs arrive as INPUT_* env vars.
+* const config = parseInputs()
+*/
+function parseInputs() {
+	const repo = getInput("repo") || GITHUB_REPOSITORY;
+	if (!repo) throw new Error("repo input is required");
+	const token = getInput("token");
+	if (!token) throw new Error("token input is required");
+	const outputDirectory = getInput("output-directory") || "assets";
+	if (isAbsolute(outputDirectory)) throw new Error(`output-directory must be a relative path, got "${outputDirectory}"`);
+	const outputFilename = getInput("output-filename") || "star-history.svg";
+	if (outputFilename.length === 0 || outputFilename.includes("/") || outputFilename.includes("\\")) throw new Error(`output-filename must be a file name without path separators, got "${outputFilename}"`);
+	if (!/\.svg$/i.test(outputFilename)) throw new Error(`output-filename must end with .svg, got "${outputFilename}"`);
+	const rawWidth = getInput("svg-width") || "960";
+	const svgWidth = Number(rawWidth);
+	if (!Number.isInteger(svgWidth) || svgWidth < 1) throw new Error(`svg-width must be a positive integer, got "${rawWidth}"`);
+	const themes = [];
+	const rawTheme = getInput("theme");
+	if (rawTheme) for (const value of rawTheme.split(/[,，\s]+/)) {
+		const theme = value.trim().toLowerCase();
+		if (!theme) continue;
+		if (!isTheme(theme)) throw new Error(`theme "${value}" is invalid; use light, dark, or light, dark`);
+		if (!themes.includes(theme)) themes.push(theme);
+	}
+	if (themes.length === 0) themes.push("light");
+	return {
+		repo,
+		token,
+		outputDirectory,
+		outputFilename,
+		svgWidth,
+		themes
+	};
+}
+/**
+* Maps the requested themes to concrete chart file names.
+*
+* 将请求的主题映射为具体的图表文件名。
+*
+* @param config - Parsed action inputs / 解析后的动作输入
+* @returns One entry per theme: single-theme runs keep the input filename;
+*   multi-theme runs derive `-light`/`-dark` variants /
+*   每个主题一个条目：单主题运行保留输入文件名；多主题运行派生
+*   `-light`/`-dark` 变体
+* @example
+* getChartFilePaths({ ...themes: ['light', 'dark'], outputFilename: 'chart.svg' })
+* // [{ theme: 'light', file: 'chart-light.svg' }, { theme: 'dark', file: 'chart-dark.svg' }]
+*/
+function getChartFilePaths(config) {
+	if (config.themes.length === 1) return [{
+		theme: config.themes[0],
+		file: config.outputFilename
+	}];
+	const i = config.outputFilename.lastIndexOf(".");
+	const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
+	const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename;
+	return [{
+		theme: "light",
+		file: `${stem}-light${ext}`
+	}, {
+		theme: "dark",
+		file: `${stem}-dark${ext}`
+	}];
+}
+//#endregion
+//#region src/services/git.ts
+/**
+* Runs a git command and throws a readable error on failure.
+*
+* 执行 git 命令，失败时抛出可读的错误信息。
+*
+* @param cwd - Directory to run git in / 执行 git 的目录
+* @param args - Git arguments after `git` / `git` 之后的命令行参数
+* @returns The trimmed stdout of the command / 命令的 stdout 输出（去除首尾空白）
+* @throws {Error} With the captured stderr when the command exits non-zero /
+*   命令以非零状态退出时抛出，包含捕获的 stderr
+*/
+function runGit(cwd, args) {
+	try {
+		return execFileSync("git", args, {
+			cwd,
+			stdio: [
+				"ignore",
+				"pipe",
+				"pipe"
+			]
+		}).toString();
+	} catch (error) {
+		const stderr = error.stderr?.toString() ?? "";
+		throw new Error(`git ${args.join(" ")} failed: ${stderr.trim() || String(error)}`);
+	}
+}
+/**
+* Commits the chart files as `github-actions[bot]` and pushes them.
+*
+* Idempotent: runs with no staged changes skip the commit. On `pull_request`
+* events the whole write-back is skipped — forked PRs cannot be pushed with
+* the default token, and the chart does not belong on a feature branch.
+*
+* 以 `github-actions[bot]` 身份提交图表文件并推送。
+*
+* 幂等设计：无暂存变更时跳过提交。在 `pull_request` 事件下整个写回过程会被
+* 跳过——fork 的 PR 无法使用默认令牌推送，图表也不应提交到特性分支。
+*
+* @param options - Commit and push configuration / 提交与推送配置
+* @example
+* commitAndPush({ cwd: workspace, files: ['assets/star-history.svg'], token })
+*/
+function commitAndPush({ cwd, files, token }) {
+	if (GITHUB_EVENT_NAME === "pull_request") {
+		info("pull_request context: skipping commit and push");
+		return;
+	}
+	runGit(cwd, ["rev-parse", "--is-inside-work-tree"]);
+	runGit(cwd, [
+		"add",
+		"--",
+		...files
+	]);
+	const diffCheck = spawnSync("git", [
+		"diff",
+		"--cached",
+		"--quiet"
+	], {
+		cwd,
+		stdio: [
+			"ignore",
+			"pipe",
+			"pipe"
+		]
+	});
+	if (diffCheck.status === 0) {
+		info("no chart changes; skipping commit and push");
+		return;
+	}
+	if (diffCheck.status !== 1) {
+		const stderr = diffCheck.stderr?.toString() ?? "";
+		throw new Error(`git diff --cached --quiet failed: ${stderr.trim()}`);
+	}
+	runGit(cwd, [
+		"-c",
+		"user.name=github-actions[bot]",
+		"-c",
+		"user.email=41898282+github-actions[bot]@users.noreply.github.com",
+		"commit",
+		"-m",
+		"chore: update star history chart"
+	]);
+	if (GITHUB_REPOSITORY) {
+		const host = new URL(GITHUB_SERVER_URL).host;
+		runGit(cwd, [
+			"push",
+			`https://x-access-token:${encodeURIComponent(token)}@${host}/${GITHUB_REPOSITORY}.git`,
+			`HEAD:refs/heads/${GITHUB_HEAD_REF || GITHUB_REF_NAME || "main"}`
+		]);
+	} else runGit(cwd, [
+		"push",
+		"origin",
+		"HEAD"
+	]);
 }
 //#endregion
 //#region src/index.ts

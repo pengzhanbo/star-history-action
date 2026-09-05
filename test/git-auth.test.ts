@@ -12,9 +12,11 @@ vi.mock('node:child_process', () => ({
   spawnSync: spawnSyncMock,
 }))
 
-async function loadCommitAndPush(): Promise<(typeof import('../src/git.js'))['commitAndPush']> {
+async function loadCommitAndPush(): Promise<
+  (typeof import('../src/services/git.js'))['commitAndPush']
+> {
   vi.resetModules()
-  const { commitAndPush } = await import('../src/git.js')
+  const { commitAndPush } = await import('../src/services/git.js')
   return commitAndPush
 }
 

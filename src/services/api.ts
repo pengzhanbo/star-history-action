@@ -5,8 +5,9 @@ import {
   REPO_INFO_ACCEPT,
   STARGAZERS_ACCEPT,
 } from '../common/constants.js'
-import { GITHUB_API_URL } from '../env.js'
-import { formatDate, optimizeImage } from '../utils.js'
+import { optimizeImage } from '../common/image-min.js'
+import { GITHUB_API_URL } from './env.js'
+import { formatDate } from './utils.js'
 
 // GitHub runners export GITHUB_API_URL; honoring it also supports enterprise GitHub.
 const API_BASE = GITHUB_API_URL.replace(/\/+$/, '')

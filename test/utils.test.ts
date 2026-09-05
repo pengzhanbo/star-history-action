@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate } from '../src/utils.js'
+import { formatDate } from '../src/services/utils.js'
 
 describe('formatDate', () => {
   it('formats an epoch timestamp as YYYY-MM-DD in UTC', () => {

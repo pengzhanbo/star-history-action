@@ -1,12 +1,12 @@
-import type { ActionConfig } from '../src/config.js'
+import type { ActionConfig } from '../src/services/config.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getChartFilePaths } from '../src/config.js'
+import { getChartFilePaths } from '../src/services/config.js'
 
 // env.js reads process.env at module evaluation, so parseInputs scenarios
 // re-import the module after stubbing env vars.
 async function loadParseInputs() {
   vi.resetModules()
-  const { parseInputs } = await import('../src/config.js')
+  const { parseInputs } = await import('../src/services/config.js')
   return parseInputs
 }
 

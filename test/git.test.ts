@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 // Local/dev branch of commitAndPush: GITHUB_REPOSITORY is empty, so the push
 // goes to the `origin` remote instead of an authenticated runner URL.
-let commitAndPush: (typeof import('../src/git.js'))['commitAndPush']
+let commitAndPush: (typeof import('../src/services/git.js'))['commitAndPush']
 
 let scratchRoot: string
 let workspace: string
@@ -20,7 +20,7 @@ beforeAll(async () => {
   vi.stubEnv('GITHUB_HEAD_REF', '')
   vi.stubEnv('GITHUB_REF_NAME', '')
   vi.resetModules()
-  ;({ commitAndPush } = await import('../src/git.js'))
+  ;({ commitAndPush } = await import('../src/services/git.js'))
 })
 
 beforeEach(async () => {
@@ -78,7 +78,7 @@ describe('commitAndPush (local mode)', () => {
     // not belong on the feature branch, so commitAndPush must be a no-op.
     vi.stubEnv('GITHUB_EVENT_NAME', 'pull_request')
     vi.resetModules()
-    const pullRequestMode = (await import('../src/git.js')).commitAndPush
+    const pullRequestMode = (await import('../src/services/git.js')).commitAndPush
     await mkdir(join(workspace, 'assets'), { recursive: true })
     await writeFile(join(workspace, 'assets/star-history.svg'), '<svg/>', 'utf8')
 
@@ -95,7 +95,7 @@ describe('commitAndPush (local mode)', () => {
     // against the module-level GITHUB_EVENT_NAME read at import time).
     vi.stubEnv('GITHUB_EVENT_NAME', '')
     vi.resetModules()
-    ;({ commitAndPush } = await import('../src/git.js'))
+    ;({ commitAndPush } = await import('../src/services/git.js'))
   })
 
   it('throws when cwd is not a git work tree', () => {
