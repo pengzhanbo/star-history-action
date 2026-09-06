@@ -34,6 +34,10 @@ inputs:
       output both
     required: false
     default: light
+  output-format:
+    description: Output file format. svg (default), png (rasterized), or both
+    required: false
+    default: svg
 
 runs:
   using: composite
@@ -87,4 +91,5 @@ runs:
         INPUT_OUTPUT-FILENAME: ${{ inputs.output-filename }}
         INPUT_SVG-WIDTH: ${{ inputs.svg-width }}
         INPUT_THEME: ${{ inputs.theme }}
+        INPUT_OUTPUT-FORMAT: ${{ inputs.output-format }}
       run: node dist/index.js

@@ -43,6 +43,7 @@ jobs:
 | `output-filename`  | No       | `star-history.svg`         | Output file name. Must end with `.svg`. When both themes are configured, `-light`/`-dark` is appended before the extension.                         |
 | `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                                                   |
 | `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                                                |
+| `output-format`    | No       | `svg`                      | Output file format: `svg` (default), `png` (rasterized from the SVG), or `both`.                                                                    |
 
 <!-- markdownlint-enable MD060 -->
 
@@ -64,7 +65,11 @@ jobs:
   skip the commit, so the workflow is idempotent. On `pull_request` events the
   write-back is skipped entirely — forked PRs cannot be pushed to with the
   default token, and the chart does not belong on a feature branch.
-- **Output format**: always SVG — `output-filename` must end in `.svg`.
+- **Output format**: SVG by default — `output-filename` must end in `.svg`.
+  With `output-format: png` or `both`, the chart is rasterized to PNG(s) via
+  sharp (the `.png` name mirrors the `.svg` one, e.g. `star-history-light.png`).
+  Note: the rasterizer uses a system fallback font, so the PNG is a raster
+  preview rather than a pixel-perfect copy of the SVG.
 
 ## Embedding the chart in your README
 
