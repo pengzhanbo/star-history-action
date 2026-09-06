@@ -13,7 +13,6 @@ import { drawXAxis, drawYAxis } from './draw-axis.js'
 import { drawTitle, drawXLabel, drawYLabel } from './draw-labels.js'
 import { drawLastValue } from './draw-last-value.js'
 import { drawLegend } from './draw-legend.js'
-// import { drawWatermark } from './draw-watermark.js'
 
 /**
  * Base chart padding, copied per render so consecutive renders never
@@ -343,8 +342,6 @@ export function XYChart(
   }
 
   const svgChart = chart.append('g').attr('pointer-events', 'all')
-
-  // drawWatermark(svgChart, chartWidth, chartHeight)
 
   if (title) {
     if (uniq(datasets.map((d) => d.label.split('/')[0])).length === 1) {
