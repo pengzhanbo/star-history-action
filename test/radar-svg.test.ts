@@ -11,21 +11,24 @@ const attributes = {
 }
 
 describe('renderRadarSvg', () => {
-  it('returns a standalone SVG with the xkcd font embedded', () => {
-    const svg = renderRadarSvg(attributes)
+  it('returns a standalone SVG with a subset xkcd font embedded', async () => {
+    const svg = await renderRadarSvg(attributes)
 
     expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true)
     expect(svg.endsWith('</svg>')).toBe(true)
     expect(svg).toContain('width="400"')
     expect(svg).toContain('height="400"')
     expect(svg).toContain('font-family:xkcd,cursive')
-    // the ttf font is inlined so the SVG renders as a sandboxed <img>
+    // the font is inlined as a woff2 subset (not the full ttf), so the SVG
+    // renders as a sandboxed <img> without shipping ~50KB of font data
     expect(svg).toContain('@font-face')
-    expect(svg).toContain('format("truetype")')
+    expect(svg).toContain('data:font/woff2')
+    expect(svg).toContain('format("woff2")')
+    expect(svg).not.toContain('data:font/ttf')
   })
 
-  it('labels all six axes', () => {
-    const svg = renderRadarSvg(attributes)
+  it('labels all six axes', async () => {
+    const svg = await renderRadarSvg(attributes)
 
     for (const label of [
       'Stars',
@@ -39,8 +42,8 @@ describe('renderRadarSvg', () => {
     }
   })
 
-  it('draws the data polygon and one dot per axis', () => {
-    const svg = renderRadarSvg(attributes)
+  it('draws the data polygon and one dot per axis', async () => {
+    const svg = await renderRadarSvg(attributes)
 
     expect(svg).toContain('#16a34a')
     // one data dot per axis
@@ -49,15 +52,29 @@ describe('renderRadarSvg', () => {
     expect(svg.match(/<path d="/g)?.length).toBeGreaterThanOrEqual(8)
   })
 
-  it('honors a custom size', () => {
-    const svg = renderRadarSvg(attributes, 200)
+  it('honors a custom size', async () => {
+    const svg = await renderRadarSvg(attributes, { size: 200 })
 
     expect(svg).toContain('width="200"')
     expect(svg).toContain('height="200"')
     expect(svg).toContain('viewBox="0 0 200 200"')
   })
 
-  it('is deterministic for identical input (seeded PRNG)', () => {
-    expect(renderRadarSvg(attributes)).toBe(renderRadarSvg(attributes))
+  it('defaults to the light theme (transparent background)', async () => {
+    const svg = await renderRadarSvg(attributes)
+
+    expect(svg).toContain('background:transparent')
+  })
+
+  it('renders the dark theme with dark colors', async () => {
+    const svg = await renderRadarSvg(attributes, { theme: 'dark' })
+
+    expect(svg).toContain('background:#0d1117')
+    expect(svg).toContain('#2ea043')
+    expect(svg).toContain('#30363d')
+  })
+
+  it('is deterministic for identical input (seeded PRNG)', async () => {
+    expect(await renderRadarSvg(attributes)).toBe(await renderRadarSvg(attributes))
   })
 })

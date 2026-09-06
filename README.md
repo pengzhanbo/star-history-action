@@ -72,13 +72,15 @@ jobs:
   Note: the rasterizer uses a system fallback font, so the PNG is a raster
   preview rather than a pixel-perfect copy of the SVG.
 - **Radar chart**: with `radar: true`, a per-repo radar SVG is written alongside
-  the history chart — `<stem>-radar.svg` for a single repo, or
-  `<stem>-radar-<owner>-<repo>.svg` when comparing multiple repos. Six metrics
-  (stars, new stars over 30 days, pushes, contributors, issues closed, forks)
-  are fetched from the GitHub API and mapped to 0–99 scores on a log scale, so
-  the radar compares metric intensity rather than raw counts. Radar charts are
-  always SVG (no PNG rasterization) and are included in the same commit as the
-  history chart.
+  the history chart, one file per theme like the history chart itself — for a
+  single repo/theme that's `<stem>-radar.svg`; multiple repos append
+  `<owner>-<repo>` and both themes insert `-light`/`-dark` before the extension
+  (e.g. `star-history-radar-owner-repo-dark.svg`). Six metrics (stars, new stars
+  over 30 days, pushes, contributors, issues closed, forks) are fetched from the
+  GitHub API and mapped to 0–99 scores on a log scale, so the radar compares
+  metric intensity rather than raw counts. The xkcd font is inlined as a woff2
+  subset (same as the history chart). Radar charts are always SVG (no PNG
+  rasterization) and are included in the same commit as the history chart.
 
 ## Embedding the chart in your README
 

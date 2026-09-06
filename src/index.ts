@@ -86,12 +86,14 @@ async function run(): Promise<void> {
   if (config.radar) {
     for (const { repo, records } of datasets) {
       const attributes = await getRepoRadarAttributes(repo, config.token, records)
-      const file = getRadarFileName(config, repo)
-      const filePath = join(outDir, file)
-      const svg = renderRadarSvg(attributes)
-      await writeFile(filePath, svg, 'utf8')
-      info(`wrote ${relative(workspace, filePath)}`)
-      chartPaths.push(relative(workspace, filePath))
+      for (const theme of config.themes) {
+        const file = getRadarFileName(config, repo, theme)
+        const filePath = join(outDir, file)
+        const svg = await renderRadarSvg(attributes, { theme })
+        await writeFile(filePath, svg, 'utf8')
+        info(`wrote ${relative(workspace, filePath)}`)
+        chartPaths.push(relative(workspace, filePath))
+      }
     }
   }
 

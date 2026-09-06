@@ -283,4 +283,21 @@ describe('getRadarFileName', () => {
       'chart-radar.SVG',
     )
   })
+
+  it('ignores the theme suffix for a single-theme run', () => {
+    expect(getRadarFileName(baseConfig, 'owner/repo', 'dark')).toBe('star-history-radar.svg')
+  })
+
+  it('inserts -light/-dark before the extension for multi-theme runs', () => {
+    const both: ActionConfig = { ...baseConfig, themes: ['light', 'dark'] }
+
+    expect(getRadarFileName(both, 'owner/repo', 'light')).toBe('star-history-radar-light.svg')
+    expect(getRadarFileName(both, 'owner/repo', 'dark')).toBe('star-history-radar-dark.svg')
+  })
+
+  it('combines the repo and theme suffixes', () => {
+    const both: ActionConfig = { ...baseConfig, repos: ['a/b', 'c/d'], themes: ['light', 'dark'] }
+
+    expect(getRadarFileName(both, 'a/b', 'dark')).toBe('star-history-radar-a-b-dark.svg')
+  })
 })

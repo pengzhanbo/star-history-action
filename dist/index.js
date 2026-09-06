@@ -63,6 +63,26 @@ function getSubsetFontUrl(text) {
 * Produces a complete <svg> string suitable for embedding in satori
 * (as a data:image/svg+xml;base64 src) or direct rendering.
 */
+const LIGHT_COLORS = {
+	background: "transparent",
+	gridStroke: "#ccc",
+	outerStroke: "#999",
+	axisStroke: "#bbb",
+	levelLabel: "#999",
+	axisLabel: "#555",
+	dataColor: "#16a34a",
+	dotStroke: "white"
+};
+const DARK_COLORS = {
+	background: "#0d1117",
+	gridStroke: "#30363d",
+	outerStroke: "#484f58",
+	axisStroke: "#3d444d",
+	levelLabel: "#7d8590",
+	axisLabel: "#8b949e",
+	dataColor: "#2ea043",
+	dotStroke: "#0d1117"
+};
 /**
 * Radar axis labels, clockwise from 12 o'clock.
 *
@@ -88,6 +108,16 @@ const KEYS = [
 	"contributors",
 	"pushes",
 	"forks"
+];
+/**
+* Concentric level rings drawn at these percentages of the max radius.
+*
+* 以最大半径的这些百分比绘制同心等级环。
+*/
+const LEVELS = [
+	25,
+	50,
+	75
 ];
 /**
 * Seeds a deterministic PRNG (LCG) so the wobble is reproducible.
@@ -153,13 +183,28 @@ function sketchyPolygonPath(points, jitter, rng, closed = true) {
 * 生成完整的 `<svg>` 字符串，可用于嵌入 satori（作为 data:image/svg+xml;
 * base64 的 src）或直接渲染。
 *
+* The xkcd font is inlined as a woff2 subset covering only the glyphs the chart
+* actually draws (axis labels + level numbers); subsetting failure falls back
+* to the full TrueType font. Like the xy-chart, the radar text is identical
+* across themes, so the subset is computed once and cached.
+*
+* 内联的 xkcd 字体是仅包含图表实际绘制字形（轴标签 + 等级数字）的 woff2
+* 子集；子集化失败时回退到完整 TrueType 字体。与 xy-chart 一致，radar 的
+* 文本跨主题相同，因此子集只需计算一次并被缓存。
+*
 * @param attributes - Repo metrics (0–99 percentiles) / 仓库指标（0–99 百分位）
-* @param size - Square side length in px (default 400) / 正方形边长（像素，默认 400）
-* @returns A complete standalone SVG string / 完整的独立 SVG 字符串
+* @param options - Render options: theme and size / 渲染选项：主题与尺寸
+* @returns A promise of a complete standalone SVG string / 完整独立 SVG 字符串的 Promise
 * @example
-* const svg = renderRadarSvg({ stars: 90, new_stars: 40, pushes: 20 }, 400)
+* const svg = await renderRadarSvg(
+*   { stars: 90, new_stars: 40, pushes: 20 },
+*   { theme: 'dark', size: 400 },
+* )
 */
-function renderRadarSvg(attributes, size = 400) {
+async function renderRadarSvg(attributes, options = {}) {
+	const theme = options.theme ?? "light";
+	const size = options.size ?? 400;
+	const colors = theme === "dark" ? DARK_COLORS : LIGHT_COLORS;
 	const radius = (size - 140) / 2;
 	const cx = size / 2;
 	const cy = size / 2;
@@ -172,27 +217,33 @@ function renderRadarSvg(attributes, size = 400) {
 		return [Math.cos(angle) * r, Math.sin(angle) * r];
 	});
 	const parts = [];
-	parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="font-family:xkcd,cursive;background:transparent">`);
-	parts.push(`<defs><style type="text/css">@font-face { font-family: "xkcd"; src: url(${getXkcdFontUrl()}) format("truetype"); }</style></defs>`);
+	parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="font-family:xkcd,cursive;background:${colors.background}">`);
+	const chartText = `${LABELS.join("")}${LEVELS.join("")}`;
+	let fontUrl;
+	let fontFormat;
+	try {
+		fontUrl = await getSubsetFontUrl(chartText);
+		fontFormat = "woff2";
+	} catch {
+		fontUrl = getXkcdFontUrl();
+		fontFormat = "truetype";
+	}
+	parts.push(`<defs><style type="text/css">@font-face { font-family: "xkcd"; src: url(${fontUrl}) format("${fontFormat}"); }</style></defs>`);
 	parts.push(`<g transform="translate(${cx},${cy})">`);
-	const levels = [
-		25,
-		50,
-		75
-	];
+	const levels = LEVELS;
 	for (const level of levels) {
 		const pts = polygonPoints(scaleR(level));
-		parts.push(`<path d="${sketchyPolygonPath(pts, 1.5, rng)}" fill="none" stroke="#ccc" stroke-width="1" stroke-dasharray="6,4"/>`);
+		parts.push(`<path d="${sketchyPolygonPath(pts, 1.5, rng)}" fill="none" stroke="${colors.gridStroke}" stroke-width="1" stroke-dasharray="6,4"/>`);
 	}
 	const outerPts = polygonPoints(radius);
-	parts.push(`<path d="${sketchyPolygonPath(outerPts, 2, rng)}" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="8,5"/>`);
+	parts.push(`<path d="${sketchyPolygonPath(outerPts, 2, rng)}" fill="none" stroke="${colors.outerStroke}" stroke-width="1.5" stroke-dasharray="8,5"/>`);
 	for (let i = 0; i < numAxes; i++) {
 		const angle = angleSlice * i - Math.PI / 2;
 		const x = Math.cos(angle) * radius;
 		const y = Math.sin(angle) * radius;
-		parts.push(`<path d="${sketchyPolygonPath([[0, 0], [x, y]], 1.5, rng, false)}" fill="none" stroke="#bbb" stroke-width="1"/>`);
+		parts.push(`<path d="${sketchyPolygonPath([[0, 0], [x, y]], 1.5, rng, false)}" fill="none" stroke="${colors.axisStroke}" stroke-width="1"/>`);
 	}
-	const dataColor = "#16a34a";
+	const { dataColor } = colors;
 	const dataPts = KEYS.map((key, i) => {
 		const value = attributes[key];
 		const angle = angleSlice * i - Math.PI / 2;
@@ -200,17 +251,17 @@ function renderRadarSvg(attributes, size = 400) {
 		return [Math.cos(angle) * r, Math.sin(angle) * r];
 	});
 	parts.push(`<path d="${sketchyPolygonPath(dataPts, 3, rng)}" fill="${dataColor}" fill-opacity="0.15" stroke="${dataColor}" stroke-width="3.5" stroke-linejoin="round"/>`);
-	for (const [x, y] of dataPts) parts.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${dataColor}" stroke="white" stroke-width="2"/>`);
+	for (const [x, y] of dataPts) parts.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${dataColor}" stroke="${colors.dotStroke}" stroke-width="2"/>`);
 	for (const level of levels) {
 		const r = scaleR(level);
-		parts.push(`<text x="4" y="${(-r - 2).toFixed(1)}" font-size="9" fill="#999" stroke="none">${level}</text>`);
+		parts.push(`<text x="4" y="${(-r - 2).toFixed(1)}" font-size="9" fill="${colors.levelLabel}" stroke="none">${level}</text>`);
 	}
 	for (let i = 0; i < numAxes; i++) {
 		const angle = angleSlice * i - Math.PI / 2;
 		const labelRadius = radius + (i === 1 || i === 2 ? 40 : 28);
 		const x = Math.cos(angle) * labelRadius;
 		const y = Math.sin(angle) * labelRadius;
-		parts.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="17" fill="#555" stroke="none">${LABELS[i]}</text>`);
+		parts.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="17" fill="${colors.axisLabel}" stroke="none">${LABELS[i]}</text>`);
 	}
 	parts.push(`</g>`);
 	parts.push(`</svg>`);
@@ -1325,24 +1376,34 @@ function getChartFilePaths(config) {
 	});
 }
 /**
-* Derives the radar chart file name for one repo. Single-repo runs keep a
-* plain `<stem>-radar.svg`; multi-repo runs suffix the repo (`/` → `-`) so
-* each repo gets its own file.
+* Derives the radar chart file name for one repo (and, on multi-theme runs, one
+* theme). Single-repo runs keep a plain `<stem>-radar.svg`; multi-repo runs
+* suffix the repo (`/` → `-`) so each repo gets its own file; when both themes
+* are configured, `-light`/`-dark` is inserted before the extension (mirroring
+* {@link getChartFilePaths}).
 *
-* 为单个仓库派生雷达图文件名。单仓库运行保留 `<stem>-radar.svg`；
-* 多仓库运行追加仓库名（`/` 替换为 `-`），使每个仓库各自成文件。
+* 为单个仓库（多主题运行时为单个主题）派生雷达图文件名。单仓库运行保留
+* `<stem>-radar.svg`；多仓库运行追加仓库名（`/` 替换为 `-`），使每个仓库
+* 各自成文件；配置双主题时在扩展名前插入 `-light`/`-dark`（与
+* {@link getChartFilePaths} 一致）。
 *
 * @param config - Parsed action inputs / 解析后的动作输入
 * @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+* @param theme - Theme being rendered; only honored when both themes are
+*   configured / 正在渲染的主题；仅当配置双主题时生效
 * @returns The radar chart file name / 雷达图文件名
 * @example
-* getRadarFileName({ outputFilename: 'star-history.svg', repos: ['a/b', 'c/d'] }, 'a/b')
-* // 'star-history-radar-a-b.svg'
+* getRadarFileName(
+*   { outputFilename: 'star-history.svg', repos: ['a/b', 'c/d'], themes: ['light', 'dark'] },
+*   'a/b',
+*   'dark',
+* )
+* // 'star-history-radar-a-b-dark.svg'
 */
-function getRadarFileName(config, repo) {
+function getRadarFileName(config, repo, theme) {
 	const i = config.outputFilename.lastIndexOf(".");
 	const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
-	return `${i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename}-radar${config.repos.length > 1 ? `-${repo.replaceAll("/", "-")}` : ""}${ext}`;
+	return `${i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename}-radar${config.repos.length > 1 ? `-${repo.replaceAll("/", "-")}` : ""}${theme && config.themes.length > 1 ? `-${theme}` : ""}${ext}`;
 }
 //#endregion
 //#region src/services/git.ts
@@ -1589,12 +1650,14 @@ async function run() {
 	});
 	if (config.radar) for (const { repo, records } of datasets) {
 		const attributes = await getRepoRadarAttributes(repo, config.token, records);
-		const file = getRadarFileName(config, repo);
-		const filePath = join(outDir, file);
-		const svg = renderRadarSvg(attributes);
-		await writeFile(filePath, svg, "utf8");
-		info(`wrote ${relative(workspace, filePath)}`);
-		chartPaths.push(relative(workspace, filePath));
+		for (const theme of config.themes) {
+			const file = getRadarFileName(config, repo, theme);
+			const filePath = join(outDir, file);
+			const svg = await renderRadarSvg(attributes, { theme });
+			await writeFile(filePath, svg, "utf8");
+			info(`wrote ${relative(workspace, filePath)}`);
+			chartPaths.push(relative(workspace, filePath));
+		}
 	}
 	commitAndPush({
 		cwd: workspace,

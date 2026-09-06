@@ -292,19 +292,20 @@ describe('action end-to-end (mock GitHub API)', () => {
     expect(png.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
   })
 
-  it('writes a per-repo radar SVG when radar is enabled', async () => {
-    const result = await runAction({
-      INPUT_RADAR: 'true',
-      INPUT_THEME: 'light',
-    })
+  it('writes per-theme radar SVGs when radar is enabled', async () => {
+    const result = await runAction({ INPUT_RADAR: 'true' })
     expect(result.stderr).toBe('')
     expectSuccess(result)
-    expect(result.stdout).toContain('wrote assets/star-history.svg')
-    expect(result.stdout).toContain('wrote assets/star-history-radar.svg')
+    expect(result.stdout).toContain('wrote assets/star-history-light.svg')
+    expect(result.stdout).toContain('wrote assets/star-history-radar-light.svg')
+    expect(result.stdout).toContain('wrote assets/star-history-radar-dark.svg')
 
-    const radar = readFileSync(join(workspace, 'assets/star-history-radar.svg'), 'utf8')
-    expect(radar).toContain('<svg')
-    expect(radar).toContain('font-family:xkcd,cursive')
+    const light = readFileSync(join(workspace, 'assets/star-history-radar-light.svg'), 'utf8')
+    const dark = readFileSync(join(workspace, 'assets/star-history-radar-dark.svg'), 'utf8')
+    expect(light).toContain('<svg')
+    expect(light).toContain('font-family:xkcd,cursive')
+    // the radar inlines a woff2 font subset, not the full ttf
+    expect(light).toContain('data:font/woff2')
     // all six axis labels are present
     for (const label of [
       'Stars',
@@ -314,10 +315,11 @@ describe('action end-to-end (mock GitHub API)', () => {
       'Pushes',
       'Forks',
     ]) {
-      expect(radar).toContain(`>${label}</text>`)
+      expect(light).toContain(`>${label}</text>`)
     }
+    expect(dark).toContain('background:#0d1117')
 
-    // The radar SVG is part of the chart commit.
+    // The radar SVGs are part of the chart commit.
     expect(git(workspace, 'log', '-1', '--format=%s').trim()).toBe(
       'chore: update star history chart',
     )

@@ -4,7 +4,14 @@
  * (as a data:image/svg+xml;base64 src) or direct rendering.
  */
 
-import { getXkcdFontUrl } from '../common/font-subset.js'
+import { getSubsetFontUrl, getXkcdFontUrl } from '../common/font-subset.js'
+
+/**
+ * Radar chart theme; mirrors the action's `theme` input.
+ *
+ * 雷达图主题；与动作的 `theme` 输入一致。
+ */
+export type RadarTheme = 'light' | 'dark'
 
 /**
  * Repo metrics used to draw the radar — 0–99 percentile values.
@@ -18,6 +25,64 @@ export interface RepoAttributes {
   contributors: number
   issues_closed: number
   forks: number
+}
+
+/**
+ * Render options for {@link renderRadarSvg}.
+ *
+ * {@link renderRadarSvg} 的渲染选项。
+ */
+export interface RadarRenderOptions {
+  /**
+   * Chart theme; defaults to `light`.
+   *
+   * 图表主题；默认为 `light`。
+   */
+  theme?: RadarTheme
+  /**
+   * Square side length in px; defaults to 400.
+   *
+   * 正方形边长（像素）；默认为 400。
+   */
+  size?: number
+}
+
+/**
+ * Color set for one radar theme.
+ *
+ * 单个雷达图主题的配色。
+ */
+interface RadarColors {
+  background: string
+  gridStroke: string
+  outerStroke: string
+  axisStroke: string
+  levelLabel: string
+  axisLabel: string
+  dataColor: string
+  dotStroke: string
+}
+
+const LIGHT_COLORS: RadarColors = {
+  background: 'transparent',
+  gridStroke: '#ccc',
+  outerStroke: '#999',
+  axisStroke: '#bbb',
+  levelLabel: '#999',
+  axisLabel: '#555',
+  dataColor: '#16a34a',
+  dotStroke: 'white',
+}
+
+const DARK_COLORS: RadarColors = {
+  background: '#0d1117',
+  gridStroke: '#30363d',
+  outerStroke: '#484f58',
+  axisStroke: '#3d444d',
+  levelLabel: '#7d8590',
+  axisLabel: '#8b949e',
+  dataColor: '#2ea043',
+  dotStroke: '#0d1117',
 }
 
 /**
@@ -39,6 +104,13 @@ const KEYS: (keyof RepoAttributes)[] = [
   'pushes',
   'forks',
 ]
+
+/**
+ * Concentric level rings drawn at these percentages of the max radius.
+ *
+ * 以最大半径的这些百分比绘制同心等级环。
+ */
+const LEVELS = [25, 50, 75]
 
 /**
  * Seeds a deterministic PRNG (LCG) so the wobble is reproducible.
@@ -125,13 +197,31 @@ function sketchyPolygonPath(
  * 生成完整的 `<svg>` 字符串，可用于嵌入 satori（作为 data:image/svg+xml;
  * base64 的 src）或直接渲染。
  *
+ * The xkcd font is inlined as a woff2 subset covering only the glyphs the chart
+ * actually draws (axis labels + level numbers); subsetting failure falls back
+ * to the full TrueType font. Like the xy-chart, the radar text is identical
+ * across themes, so the subset is computed once and cached.
+ *
+ * 内联的 xkcd 字体是仅包含图表实际绘制字形（轴标签 + 等级数字）的 woff2
+ * 子集；子集化失败时回退到完整 TrueType 字体。与 xy-chart 一致，radar 的
+ * 文本跨主题相同，因此子集只需计算一次并被缓存。
+ *
  * @param attributes - Repo metrics (0–99 percentiles) / 仓库指标（0–99 百分位）
- * @param size - Square side length in px (default 400) / 正方形边长（像素，默认 400）
- * @returns A complete standalone SVG string / 完整的独立 SVG 字符串
+ * @param options - Render options: theme and size / 渲染选项：主题与尺寸
+ * @returns A promise of a complete standalone SVG string / 完整独立 SVG 字符串的 Promise
  * @example
- * const svg = renderRadarSvg({ stars: 90, new_stars: 40, pushes: 20 }, 400)
+ * const svg = await renderRadarSvg(
+ *   { stars: 90, new_stars: 40, pushes: 20 },
+ *   { theme: 'dark', size: 400 },
+ * )
  */
-export function renderRadarSvg(attributes: RepoAttributes, size = 400): string {
+export async function renderRadarSvg(
+  attributes: RepoAttributes,
+  options: RadarRenderOptions = {},
+): Promise<string> {
+  const theme = options.theme ?? 'light'
+  const size = options.size ?? 400
+  const colors = theme === 'dark' ? DARK_COLORS : LIGHT_COLORS
   const margin = 70
   const radius = (size - margin * 2) / 2
   const cx = size / 2
@@ -152,33 +242,43 @@ export function renderRadarSvg(attributes: RepoAttributes, size = 400): string {
 
   // SVG open
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="font-family:xkcd,cursive;background:transparent">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="font-family:xkcd,cursive;background:${colors.background}">`,
   )
 
   // Embed the xkcd font inline so it renders when used as a data:image/svg+xml URL.
   // Unlike the xy-chart (which is either an inline DOM SVG or served directly),
   // this SVG is embedded as a base64 <img> src inside the satori OG card layout,
   // so it's sandboxed and cannot access page CSS or external fonts.
+  const chartText = `${LABELS.join('')}${LEVELS.join('')}`
+  let fontUrl: string
+  let fontFormat: string
+  try {
+    fontUrl = await getSubsetFontUrl(chartText)
+    fontFormat = 'woff2'
+  } catch {
+    fontUrl = getXkcdFontUrl()
+    fontFormat = 'truetype'
+  }
   parts.push(
-    `<defs><style type="text/css">@font-face { font-family: "xkcd"; src: url(${getXkcdFontUrl()}) format("truetype"); }</style></defs>`,
+    `<defs><style type="text/css">@font-face { font-family: "xkcd"; src: url(${fontUrl}) format("${fontFormat}"); }</style></defs>`,
   )
 
   // Translate group to center
   parts.push(`<g transform="translate(${cx},${cy})">`)
 
   // Concentric level polygons (dashed)
-  const levels = [25, 50, 75]
+  const levels = LEVELS
   for (const level of levels) {
     const pts = polygonPoints(scaleR(level))
     parts.push(
-      `<path d="${sketchyPolygonPath(pts, 1.5, rng)}" fill="none" stroke="#ccc" stroke-width="1" stroke-dasharray="6,4"/>`,
+      `<path d="${sketchyPolygonPath(pts, 1.5, rng)}" fill="none" stroke="${colors.gridStroke}" stroke-width="1" stroke-dasharray="6,4"/>`,
     )
   }
 
   // Outer ring
   const outerPts = polygonPoints(radius)
   parts.push(
-    `<path d="${sketchyPolygonPath(outerPts, 2, rng)}" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="8,5"/>`,
+    `<path d="${sketchyPolygonPath(outerPts, 2, rng)}" fill="none" stroke="${colors.outerStroke}" stroke-width="1.5" stroke-dasharray="8,5"/>`,
   )
 
   // Axis lines
@@ -195,12 +295,12 @@ export function renderRadarSvg(attributes: RepoAttributes, size = 400): string {
         1.5,
         rng,
         false,
-      )}" fill="none" stroke="#bbb" stroke-width="1"/>`,
+      )}" fill="none" stroke="${colors.axisStroke}" stroke-width="1"/>`,
     )
   }
 
   // Data polygon
-  const dataColor = '#16a34a'
+  const { dataColor } = colors
   const dataPts: [number, number][] = KEYS.map((key, i) => {
     const value = attributes[key]
     const angle = angleSlice * i - Math.PI / 2
@@ -215,7 +315,7 @@ export function renderRadarSvg(attributes: RepoAttributes, size = 400): string {
   // Data dots
   for (const [x, y] of dataPts) {
     parts.push(
-      `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${dataColor}" stroke="white" stroke-width="2"/>`,
+      `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${dataColor}" stroke="${colors.dotStroke}" stroke-width="2"/>`,
     )
   }
 
@@ -223,7 +323,7 @@ export function renderRadarSvg(attributes: RepoAttributes, size = 400): string {
   for (const level of levels) {
     const r = scaleR(level)
     parts.push(
-      `<text x="4" y="${(-r - 2).toFixed(1)}" font-size="9" fill="#999" stroke="none">${level}</text>`,
+      `<text x="4" y="${(-r - 2).toFixed(1)}" font-size="9" fill="${colors.levelLabel}" stroke="none">${level}</text>`,
     )
   }
 
@@ -234,7 +334,7 @@ export function renderRadarSvg(attributes: RepoAttributes, size = 400): string {
     const x = Math.cos(angle) * labelRadius
     const y = Math.sin(angle) * labelRadius
     parts.push(
-      `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="17" fill="#555" stroke="none">${LABELS[i]}</text>`,
+      `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="17" fill="${colors.axisLabel}" stroke="none">${LABELS[i]}</text>`,
     )
   }
 

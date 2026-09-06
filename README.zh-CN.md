@@ -53,7 +53,7 @@ jobs:
 - **渲染**：手绘风格的 xkcd 线条图，xkcd 字体以内联方式嵌入，因此 SVG 可在任何地方独立渲染。
 - **提交与推送**：图表以 `github-actions[bot]` 身份提交，并推送到默认远程仓库的当前分支。重复运行时若无任何变更，则跳过提交，因此工作流是幂等的。在 `pull_request` 事件中会完全跳过写回——分叉的 PR 无法使用默认 token 推送，且图表不属于功能分支。
 - **输出格式**：默认为 SVG——`output-filename` 必须以 `.svg` 结尾。当 `output-format` 为 `png` 或 `both` 时，图表会通过 sharp 栅格化为 PNG（`.png` 文件名与 `.svg` 对应，例如 `star-history-light.png`）。注意：栅格化使用系统回退字体，因此 PNG 是栅格预览，并非 SVG 的逐像素一致副本。
-- **雷达图**：当 `radar: true` 时，会在历史图表之外为每个仓库写入一份雷达图 SVG——单仓库为 `<stem>-radar.svg`，多仓库对比时为 `<stem>-radar-<owner>-<repo>.svg`。六项指标（stars、30 天内的 new stars、pushes、contributors、issues closed、forks）从 GitHub API 抓取，并按对数刻度映射为 0–99 分，因此雷达图比较的是指标强度而非原始数量。雷达图始终输出 SVG（不做 PNG 栅格化），并与历史图表一起提交。
+- **雷达图**：当 `radar: true` 时，会在历史图表之外为每个仓库写入一份雷达图 SVG，并与历史图表一样按主题各输出一份——单仓库单主题时为 `<stem>-radar.svg`；多仓库追加 `<owner>-<repo>`，双主题时在扩展名前插入 `-light`/`-dark`（例如 `star-history-radar-owner-repo-dark.svg`）。六项指标（stars、30 天内的 new stars、pushes、contributors、issues closed、forks）从 GitHub API 抓取，并按对数刻度映射为 0–99 分，因此雷达图比较的是指标强度而非原始数量。xkcd 字体以内联的 woff2 子集形式嵌入（与历史图表相同）。雷达图始终输出 SVG（不做 PNG 栅格化），并与历史图表一起提交。
 
 ## 在 README 中嵌入图表
 

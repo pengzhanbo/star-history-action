@@ -254,24 +254,35 @@ export function getChartFilePaths(config: ActionConfig): ChartFileOutput[] {
 }
 
 /**
- * Derives the radar chart file name for one repo. Single-repo runs keep a
- * plain `<stem>-radar.svg`; multi-repo runs suffix the repo (`/` → `-`) so
- * each repo gets its own file.
+ * Derives the radar chart file name for one repo (and, on multi-theme runs, one
+ * theme). Single-repo runs keep a plain `<stem>-radar.svg`; multi-repo runs
+ * suffix the repo (`/` → `-`) so each repo gets its own file; when both themes
+ * are configured, `-light`/`-dark` is inserted before the extension (mirroring
+ * {@link getChartFilePaths}).
  *
- * 为单个仓库派生雷达图文件名。单仓库运行保留 `<stem>-radar.svg`；
- * 多仓库运行追加仓库名（`/` 替换为 `-`），使每个仓库各自成文件。
+ * 为单个仓库（多主题运行时为单个主题）派生雷达图文件名。单仓库运行保留
+ * `<stem>-radar.svg`；多仓库运行追加仓库名（`/` 替换为 `-`），使每个仓库
+ * 各自成文件；配置双主题时在扩展名前插入 `-light`/`-dark`（与
+ * {@link getChartFilePaths} 一致）。
  *
  * @param config - Parsed action inputs / 解析后的动作输入
  * @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+ * @param theme - Theme being rendered; only honored when both themes are
+ *   configured / 正在渲染的主题；仅当配置双主题时生效
  * @returns The radar chart file name / 雷达图文件名
  * @example
- * getRadarFileName({ outputFilename: 'star-history.svg', repos: ['a/b', 'c/d'] }, 'a/b')
- * // 'star-history-radar-a-b.svg'
+ * getRadarFileName(
+ *   { outputFilename: 'star-history.svg', repos: ['a/b', 'c/d'], themes: ['light', 'dark'] },
+ *   'a/b',
+ *   'dark',
+ * )
+ * // 'star-history-radar-a-b-dark.svg'
  */
-export function getRadarFileName(config: ActionConfig, repo: string): string {
+export function getRadarFileName(config: ActionConfig, repo: string, theme?: ChartTheme): string {
   const i = config.outputFilename.lastIndexOf('.')
   const ext = i > 0 ? config.outputFilename.slice(i) : '.svg'
   const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename
   const repoPart = config.repos.length > 1 ? `-${repo.replaceAll('/', '-')}` : ''
-  return `${stem}-radar${repoPart}${ext}`
+  const themePart = theme && config.themes.length > 1 ? `-${theme}` : ''
+  return `${stem}-radar${repoPart}${themePart}${ext}`
 }
