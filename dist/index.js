@@ -650,7 +650,7 @@ async function renderStarHistorySvg(input) {
 	XYChart(svg, {
 		title: "Star History",
 		xLabel: "Date",
-		yLabel: "Stars",
+		yLabel: "Github Stars",
 		data: { datasets: input.datasets.map(({ repo, logo, records }) => ({
 			label: repo,
 			logo,
@@ -728,8 +728,6 @@ const OUTPUT_FORMATS = [
 	"json"
 ];
 
-const OUTPUT_FORMAT_ALIASES = { both: ["svg", "png"] };
-
 function isTheme(value) {
 	return THEMES.includes(value);
 }
@@ -743,9 +741,8 @@ function parseOutputFormats(raw) {
 	for (const fragment of raw.split(/[,，\s]+/)) {
 		const value = fragment.trim().toLowerCase();
 		if (!value) continue;
-		const expanded = OUTPUT_FORMAT_ALIASES[value] ?? (isOutputFormat(value) ? [value] : null);
-		if (!expanded) throw new Error(`output-format "${fragment}" is invalid; use svg, png, json, or both`);
-		for (const format of expanded) if (!formats.includes(format)) formats.push(format);
+		if (!isOutputFormat(value)) throw new Error(`output-format "${fragment}" is invalid; use svg, png, or json`);
+		if (!formats.includes(value)) formats.push(value);
 	}
 	return formats;
 }
@@ -772,7 +769,6 @@ function parseInputs() {
 	if (isAbsolute(outputDirectory)) throw new Error(`output-directory must be a relative path, got "${outputDirectory}"`);
 	const outputFilename = getInput("output-filename") || "star-history.svg";
 	if (outputFilename.length === 0 || outputFilename.includes("/") || outputFilename.includes("\\")) throw new Error(`output-filename must be a file name without path separators, got "${outputFilename}"`);
-	if (!/\.svg$/i.test(outputFilename)) throw new Error(`output-filename must end with .svg, got "${outputFilename}"`);
 	const outputFormat = parseOutputFormats(getInput("output-format") || "svg");
 	const radar = parseBooleanInput("radar");
 	const cache = parseBooleanInput("cache");
@@ -802,45 +798,55 @@ function parseInputs() {
 	};
 }
 
+function splitOutputFilename(filename) {
+	const i = filename.lastIndexOf(".");
+	if (i <= 0) return {
+		stem: filename,
+		ext: ""
+	};
+	const ext = filename.slice(i + 1);
+	return isKnownFormatExtension(ext) ? {
+		stem: filename.slice(0, i),
+		ext: `.${ext}`
+	} : {
+		stem: filename,
+		ext: ""
+	};
+}
+
+function isKnownFormatExtension(ext) {
+	return OUTPUT_FORMATS.includes(ext.toLowerCase());
+}
+
 function getChartFilePaths(config) {
 	if (config.outputFormat.every((format) => format === "json")) return [];
-	return (config.themes.length === 1 ? [{
-		theme: config.themes[0],
-		svgFile: config.outputFilename
-	}] : (() => {
-		const i = config.outputFilename.lastIndexOf(".");
-		const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
-		const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename;
-		return [{
-			theme: "light",
-			svgFile: `${stem}-light${ext}`
-		}, {
-			theme: "dark",
-			svgFile: `${stem}-dark${ext}`
-		}];
-	})()).map(({ theme, svgFile }) => {
+	const { stem, ext } = splitOutputFilename(config.outputFilename);
+	const svgExt = ext.toLowerCase() === ".svg" ? ext : ".svg";
+	const pngExt = ext.toLowerCase() === ".png" ? ext : ".png";
+	return config.themes.map((theme) => {
+		const suffix = config.themes.length > 1 ? `-${theme}` : "";
 		const output = {
 			theme,
-			svgFile
+			svgFile: `${stem}${suffix}${svgExt}`
 		};
-		if (config.outputFormat.includes("png")) output.pngFile = svgFile.replace(/\.svg$/i, ".png");
+		if (config.outputFormat.includes("png")) output.pngFile = `${stem}${suffix}${pngExt}`;
 		return output;
 	});
 }
 
 function getJsonFileName(config) {
-	return config.outputFilename.replace(/\.svg$/i, ".json");
+	const { stem, ext } = splitOutputFilename(config.outputFilename);
+	return `${stem}${ext.toLowerCase() === ".json" ? ext : ".json"}`;
 }
 
 function getCacheFileName(config) {
-	const extIndex = config.outputFilename.lastIndexOf(".");
-	return `${extIndex > 0 ? config.outputFilename.slice(0, extIndex) : config.outputFilename}.cache.json`;
+	const { stem } = splitOutputFilename(config.outputFilename);
+	return `${stem}.cache.json`;
 }
 
 function getRadarFileName(config, repo, theme) {
-	const i = config.outputFilename.lastIndexOf(".");
-	const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
-	return `${i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename}-radar${config.repos.length > 1 ? `-${repo.replaceAll("/", "-")}` : ""}${theme && config.themes.length > 1 ? `-${theme}` : ""}${ext}`;
+	const { stem, ext } = splitOutputFilename(config.outputFilename);
+	return `${stem}-radar${config.repos.length > 1 ? `-${repo.replaceAll("/", "-")}` : ""}${theme && config.themes.length > 1 ? `-${theme}` : ""}${ext}`;
 }
 
 function getRadarFilePaths(config, repo) {

@@ -14,28 +14,13 @@ export type ChartTheme = (typeof THEMES)[number]
  * Output formats the action can write.
  *
  * `json` exports the fetched records as structured data instead of charts.
- * The legacy `both` value is not part of the set; it is parsed as an alias for
- * `svg,png` (see {@link OUTPUT_FORMAT_ALIASES}).
  *
  * 动作可输出的文件格式。
  *
  * `json` 将抓取的记录以结构化数据导出，而非图表。
- * 遗留的 `both` 值不在集合内；它被解析为 `svg,png` 的别名
- * （见 {@link OUTPUT_FORMAT_ALIASES}）。
  */
 export const OUTPUT_FORMATS = ['svg', 'png', 'json'] as const
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number]
-
-/**
- * Backwards-compatible aliases for format lists: `both` expands to the SVG +
- * PNG pair, mirroring the pre-multi-format single-value input.
- *
- * 格式列表的向后兼容别名：`both` 展开为 SVG + PNG 组合，对应多格式输入
- * 之前的单一取值。
- */
-export const OUTPUT_FORMAT_ALIASES: Record<string, readonly OutputFormat[]> = {
-  both: ['svg', 'png'],
-}
 
 /**
  * Parsed and validated action inputs.
@@ -64,20 +49,21 @@ export interface ActionConfig {
    */
   outputDirectory: string // default 'assets'
   /**
-   * Chart file name; a multi-theme run derives `-light`/`-dark` variants.
+   * Chart file name; a multi-theme run derives `-light`/`-dark` variants. A
+   * missing or unknown extension (.svg/.png/.json are recognized) is appended
+   * based on the output-format list.
    *
-   * 图表文件名；多主题运行时会派生 `-light`/`-dark` 变体。
+   * 图表文件名；多主题运行时会派生 `-light`/`-dark` 变体。缺失或未知的扩展名
+   * （识别 .svg/.png/.json）会根据 output-format 列表追加补全。
    */
   outputFilename: string // default 'star-history.svg'
   /**
    * File formats to write: any combination of `svg` (default), `png`
    * (rasterized) and `json` (structured record data instead of charts),
-   * comma/space separated to generate several at once; the legacy `both` alias
-   * expands to `svg,png`.
+   * comma/space separated to generate several at once.
    *
    * 要写入的文件格式：`svg`（默认）、`png`（栅格化）、`json`（导出结构化
-   * 记录数据而非图表）的任意组合，逗号/空格分隔可一次生成多种；遗留别名
-   * `both` 展开为 `svg,png`。
+   * 记录数据而非图表）的任意组合，逗号/空格分隔可一次生成多种。
    */
   outputFormat: OutputFormat[] // default ['svg']
   /**
@@ -148,14 +134,12 @@ function isOutputFormat(value: string): value is OutputFormat {
 /**
  * Parses the `output-format` input into a deduped format list. Comma/space-
  * separated entries (svg, png, json) allow generating several formats in one
- * run; `both` is kept as a legacy alias for `svg,png`. Each entry is trimmed,
- * lowercased, expanded through the alias table, and deduped — the same policy
- * as `theme`. An empty input defaults to `svg`.
+ * run. Each entry is trimmed, lowercased, and deduped — the same policy as
+ * `theme`. An empty input defaults to `svg`.
  *
  * 将 `output-format` 输入解析为去重后的格式列表。逗号/空格分隔的多个格式
- * （svg、png、json）允许一次运行生成多种格式；`both` 保留为 `svg,png` 的
- * 遗留别名。每个条目逐个去空白、转小写、经别名表展开并去重——与 `theme`
- * 相同的策略。空输入默认为 `svg`。
+ * （svg、png、json）允许一次运行生成多种格式。每个条目逐个去空白、转小写并
+ * 去重——与 `theme` 相同的策略。空输入默认为 `svg`。
  *
  * @param raw - Raw input value (or `''` when the input is absent) / 原始输入值（输入缺省时为 `''`）
  * @returns The deduped format list (always non-empty) / 去重后的格式列表（恒非空）
@@ -168,14 +152,11 @@ function parseOutputFormats(raw: string): OutputFormat[] {
     if (!value) {
       continue
     }
-    const expanded = OUTPUT_FORMAT_ALIASES[value] ?? (isOutputFormat(value) ? [value] : null)
-    if (!expanded) {
-      throw new Error(`output-format "${fragment}" is invalid; use svg, png, json, or both`)
+    if (!isOutputFormat(value)) {
+      throw new Error(`output-format "${fragment}" is invalid; use svg, png, or json`)
     }
-    for (const format of expanded) {
-      if (!formats.includes(format)) {
-        formats.push(format)
-      }
+    if (!formats.includes(value)) {
+      formats.push(value)
     }
   }
   return formats
@@ -253,17 +234,18 @@ export function parseInputs(): ActionConfig {
       `output-filename must be a file name without path separators, got "${outputFilename}"`,
     )
   }
-  // The PNG raster is derived from the SVG, so the input file name must stay
-  // .svg; png/both modes swap the extension when naming the raster.
-  if (!/\.svg$/i.test(outputFilename)) {
-    throw new Error(`output-filename must end with .svg, got "${outputFilename}"`)
-  }
+  // Not restricted to .svg: the derived file names append the right extension
+  // per format when the input has none or an unknown one (see
+  // getChartFilePaths / getJsonFileName / getCacheFileName / getRadarFileName).
+  // 不再限制为 .svg：当输入没有扩展名或带未知扩展名时，派生文件名按格式
+  // 追加对应的扩展名（见 getChartFilePaths / getJsonFileName /
+  // getCacheFileName / getRadarFileName）。
 
   // The output-format input accepts comma/space-separated entries (svg, png,
-  // json) so several formats can be generated in one run; `both` is kept as a
-  // legacy alias for `svg,png` (see parseOutputFormats).
+  // json) so several formats can be generated in one run (see
+  // parseOutputFormats).
   // output-format 输入接受逗号/空格分隔的多个格式（svg、png、json），一次运行
-  // 可生成多种格式；`both` 保留为 `svg,png` 的遗留别名（见 parseOutputFormats）。
+  // 可生成多种格式（见 parseOutputFormats）。
   const outputFormat = parseOutputFormats(getInput('output-format') || 'svg')
 
   const radar = parseBooleanInput('radar')
@@ -311,6 +293,47 @@ export function parseInputs(): ActionConfig {
 }
 
 /**
+ * Splits a file name into its stem and — when present and a known output
+ * format extension (case-insensitive) — its extension, preserving the input's
+ * extension case. Absent or unknown extensions keep the whole name as the stem
+ * so the callers append the right suffix per format.
+ *
+ * 将文件名拆分为 stem 与扩展名——扩展名存在且为已知输出格式（大小写不敏感）
+ * 时剥离，并保留输入扩展名的大小写。缺失或未知的扩展名将整体保留为 stem，
+ * 由调用方按格式追加正确后缀。
+ *
+ * @param filename - File name without path separators / 不含路径分隔符的文件名
+ * @returns The stem and the extension (with leading dot; `''` when absent) /
+ *   拆分出的 stem 与扩展名（含前导点；缺失时为 `''`）
+ * @example
+ * splitOutputFilename('star-history.SVG') // { stem: 'star-history', ext: '.SVG' }
+ * splitOutputFilename('chart') // { stem: 'chart', ext: '' }
+ * splitOutputFilename('chart.webp') // { stem: 'chart.webp', ext: '' }
+ */
+function splitOutputFilename(filename: string): { stem: string; ext: string } {
+  const i = filename.lastIndexOf('.')
+  if (i <= 0) {
+    return { stem: filename, ext: '' }
+  }
+  const ext = filename.slice(i + 1)
+  return isKnownFormatExtension(ext)
+    ? { stem: filename.slice(0, i), ext: `.${ext}` }
+    : { stem: filename, ext: '' }
+}
+
+/**
+ * Whether an extension (case-insensitive) matches an output format.
+ *
+ * 判断扩展名（大小写不敏感）是否为已知的输出格式。
+ *
+ * @param ext - Extension without the leading dot / 不含前导点的扩展名
+ * @returns True when the extension is `svg`, `png`, or `json` / 当扩展名为 `svg`、`png` 或 `json` 时为真
+ */
+function isKnownFormatExtension(ext: string): boolean {
+  return (OUTPUT_FORMATS as readonly string[]).includes(ext.toLowerCase())
+}
+
+/**
  * Chart output file for one theme: the SVG is always derived (it is the
  * rasterization source); the PNG exists only when the format list includes
  * `png`.
@@ -333,16 +356,21 @@ export interface ChartFileOutput {
  * 将请求的主题映射为具体的图表文件名。
  *
  * @param config - Parsed action inputs / 解析后的动作输入
- * @returns One entry per theme with the derived `.svg` (and, when the format
- *   list includes `png`, `.png`) file names: single-theme runs keep the input
- *   filename; multi-theme runs derive `-light`/`-dark` variants. A pure `json`
+ * @returns One entry per theme: the `.svg` file keeps the input extension
+ *   (preserving its case) or defaults to `.svg`; the `.png` twin is present
+ *   only when the format list includes `png`. Single-theme runs keep the plain
+ *   stem; multi-theme runs derive `-light`/`-dark` variants. A pure `json`
  *   export writes no charts, so it maps to an empty list. /
- *   每个主题一个条目，包含派生的 `.svg`（以及格式列表包含 `png` 时的 `.png`）
- *   文件名：单主题运行保留输入文件名；多主题运行派生 `-light`/`-dark` 变体。
- *   纯 `json` 导出不写图表，映射为空列表。
+ *   每个主题一个条目：`.svg` 文件保留输入的扩展名（保留其大小写）或默认
+ *   `.svg`；`.png` 孪生文件仅当格式列表包含 `png` 时存在。单主题运行保留
+ *   原始 stem；多主题运行派生 `-light`/`-dark` 变体。纯 `json` 导出不写
+ *   图表，映射为空列表。
  * @example
- * getChartFilePaths({ ...themes: ['light', 'dark'], outputFilename: 'chart.svg' })
- * // [{ theme: 'light', svgFile: 'chart-light.svg' }, { theme: 'dark', svgFile: 'chart-dark.svg' }]
+ * getChartFilePaths({ outputFilename: 'chart', themes: ['light', 'dark'], outputFormat: ['svg', 'png'] })
+ * // [
+ * //   { theme: 'light', svgFile: 'chart-light.svg', pngFile: 'chart-light.png' },
+ * //   { theme: 'dark', svgFile: 'chart-dark.svg', pngFile: 'chart-dark.png' },
+ * // ]
  */
 export function getChartFilePaths(config: ActionConfig): ChartFileOutput[] {
   // A pure `json` export writes no charts; only a format list holding at least
@@ -350,34 +378,33 @@ export function getChartFilePaths(config: ActionConfig): ChartFileOutput[] {
   if (config.outputFormat.every((format) => format === 'json')) {
     return []
   }
-  const themeFiles =
-    config.themes.length === 1
-      ? [{ theme: config.themes[0]!, svgFile: config.outputFilename }]
-      : (() => {
-          const i = config.outputFilename.lastIndexOf('.')
-          const ext = i > 0 ? config.outputFilename.slice(i) : '.svg'
-          const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename
-          return [
-            { theme: 'light' as const, svgFile: `${stem}-light${ext}` },
-            { theme: 'dark' as const, svgFile: `${stem}-dark${ext}` },
-          ]
-        })()
-  return themeFiles.map(({ theme, svgFile }) => {
-    const output: ChartFileOutput = { theme, svgFile }
+  const { stem, ext } = splitOutputFilename(config.outputFilename)
+  // The SVG keeps a user-supplied .svg/.SVG extension as-is (case preserved);
+  // the PNG twin is named for the png format. Without a known extension both
+  // fall back to their canonical suffix.
+  // SVG 保留用户提供的 .svg/.SVG 扩展名原样（保留大小写）；PNG 孪生文件按
+  // png 格式命名。无已知扩展名时两者回退到各自的规范后缀。
+  const svgExt = ext.toLowerCase() === '.svg' ? ext : '.svg'
+  const pngExt = ext.toLowerCase() === '.png' ? ext : '.png'
+  return config.themes.map((theme) => {
+    const suffix = config.themes.length > 1 ? `-${theme}` : ''
+    const output: ChartFileOutput = { theme, svgFile: `${stem}${suffix}${svgExt}` }
     // exactOptionalPropertyTypes: only set pngFile when it exists.
     if (config.outputFormat.includes('png')) {
-      output.pngFile = svgFile.replace(/\.svg$/i, '.png')
+      output.pngFile = `${stem}${suffix}${pngExt}`
     }
     return output
   })
 }
 
 /**
- * Derives the JSON data export file name by swapping the `.svg` extension of
- * `output-filename`. The JSON holds every repo's records, so it is theme-agnostic
- * and never derives `-light`/`-dark` variants.
+ * Derives the JSON data export file name from the `output-filename` stem: a
+ * user-supplied `.json`/`.JSON` extension is kept as-is (case preserved),
+ * anything else uses `.json`. The JSON holds every repo's records, so it is
+ * theme-agnostic and never derives `-light`/`-dark` variants.
  *
- * 通过替换 `output-filename` 的 `.svg` 扩展名派生 JSON 数据导出文件名。
+ * 依据 `output-filename` 的 stem 派生 JSON 数据导出文件名：用户提供的
+ * `.json`/`.JSON` 扩展名原样保留（保留大小写），其余情况使用 `.json`。
  * JSON 包含所有仓库的记录，与主题无关，因此不派生 `-light`/`-dark` 变体。
  *
  * @param config - Parsed action inputs / 解析后的动作输入
@@ -387,15 +414,16 @@ export function getChartFilePaths(config: ActionConfig): ChartFileOutput[] {
  * // 'star-history.json'
  */
 export function getJsonFileName(config: ActionConfig): string {
-  return config.outputFilename.replace(/\.svg$/i, '.json')
+  const { stem, ext } = splitOutputFilename(config.outputFilename)
+  return `${stem}${ext.toLowerCase() === '.json' ? ext : '.json'}`
 }
 
 /**
- * Derives the incremental-fetch cache file name by swapping the extension of
- * `output-filename` for `.cache.json`. The cache holds every repo's records in
- * one theme-agnostic file, so it never derives `-light`/`-dark` variants.
+ * Derives the incremental-fetch cache file name from the `output-filename`
+ * stem, appending `.cache.json`. The cache holds every repo's records in one
+ * theme-agnostic file, so it never derives `-light`/`-dark` variants.
  *
- * 通过替换 `output-filename` 的扩展名为 `.cache.json` 派生增量抓取缓存文件名。
+ * 依据 `output-filename` 的 stem 派生增量抓取缓存文件名，追加 `.cache.json`。
  * 缓存将所有仓库的记录聚合到一个与主题无关的文件中，因此不派生
  * `-light`/`-dark` 变体。
  *
@@ -406,8 +434,7 @@ export function getJsonFileName(config: ActionConfig): string {
  * // 'star-history.cache.json'
  */
 export function getCacheFileName(config: ActionConfig): string {
-  const extIndex = config.outputFilename.lastIndexOf('.')
-  const stem = extIndex > 0 ? config.outputFilename.slice(0, extIndex) : config.outputFilename
+  const { stem } = splitOutputFilename(config.outputFilename)
   return `${stem}.cache.json`
 }
 
@@ -437,9 +464,7 @@ export function getCacheFileName(config: ActionConfig): string {
  * // 'star-history-radar-a-b-dark.svg'
  */
 export function getRadarFileName(config: ActionConfig, repo: string, theme?: ChartTheme): string {
-  const i = config.outputFilename.lastIndexOf('.')
-  const ext = i > 0 ? config.outputFilename.slice(i) : '.svg'
-  const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename
+  const { stem, ext } = splitOutputFilename(config.outputFilename)
   const repoPart = config.repos.length > 1 ? `-${repo.replaceAll('/', '-')}` : ''
   const themePart = theme && config.themes.length > 1 ? `-${theme}` : ''
   return `${stem}-radar${repoPart}${themePart}${ext}`

@@ -37,8 +37,7 @@ inputs:
   output-format:
     description: Output file format(s). svg (default) and/or png (rasterized)
       and/or json (structured record data instead of charts); comma/space
-      separated to generate several at once, e.g. "svg,png,json". The legacy
-      "both" value expands to svg,png
+      separated to generate several at once, e.g. "svg,png,json"
     required: false
     default: svg
   radar:

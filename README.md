@@ -35,17 +35,17 @@ jobs:
 
 <!-- markdownlint-disable MD060 -->
 
-| Name               | Required | Default                    | Description                                                                                                                                                                                                                                                           |
-| ------------------ | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repo`             | No       | `${{ github.repository }}` | Repository to chart, e.g. `pengzhanbo/star-history-action`. Comma/space separated (e.g. `a/repo1, b/repo2`) to compare multiple repos in one chart.                                                                                                                   |
-| `token`            | No       | `${{ github.token }}`      | GitHub token with read access to the target repo. Use a PAT for private or GHES targets.                                                                                                                                                                              |
-| `output-directory` | No       | `assets`                   | Directory to write the chart into, relative to the workspace root.                                                                                                                                                                                                    |
-| `output-filename`  | No       | `star-history.svg`         | Output file name. Must end with `.svg`. When both themes are configured, `-light`/`-dark` is appended before the extension.                                                                                                                                           |
-| `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                                                                                                                                                                     |
-| `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                                                                                                                                                                  |
-| `output-format`    | No       | `svg`                      | Output file format(s): `svg` (default), `png` (rasterized from the SVG), `json` (structured record data instead of charts), or any comma/space-separated combination (e.g. `svg,png,json`) to generate several at once. The legacy `both` value expands to `svg,png`. |
-| `radar`            | No       | `false`                    | Also render a per-repo radar SVG chart of repo health metrics (stars, new stars, pushes, contributors, issues closed, forks), each scored 0–99.                                                                                                                       |
-| `cache`            | No       | `false`                    | Incremental fetch: read the previous run's `<stem>.cache.json` as a baseline and only fetch stargazers added since, slashing API quota on repos with large histories.                                                                                                 |
+| Name               | Required | Default                    | Description                                                                                                                                                                                                                 |
+| ------------------ | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo`             | No       | `${{ github.repository }}` | Repository to chart, e.g. `pengzhanbo/star-history-action`. Comma/space separated (e.g. `a/repo1, b/repo2`) to compare multiple repos in one chart.                                                                         |
+| `token`            | No       | `${{ github.token }}`      | GitHub token with read access to the target repo. Use a PAT for private or GHES targets.                                                                                                                                    |
+| `output-directory` | No       | `assets`                   | Directory to write the chart into, relative to the workspace root.                                                                                                                                                          |
+| `output-filename`  | No       | `star-history.svg`         | Output file name. Missing or unknown extensions (`.svg`/`.png`/`.json` are recognized) are completed based on the `output-format` list. When both themes are configured, `-light`/`-dark` is appended before the extension. |
+| `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                                                                                                                           |
+| `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                                                                                                                        |
+| `output-format`    | No       | `svg`                      | Output file format(s): `svg` (default), `png` (rasterized from the SVG), `json` (structured record data instead of charts), or any comma/space-separated combination (e.g. `svg,png,json`) to generate several at once.     |
+| `radar`            | No       | `false`                    | Also render a per-repo radar SVG chart of repo health metrics (stars, new stars, pushes, contributors, issues closed, forks), each scored 0–99.                                                                             |
+| `cache`            | No       | `false`                    | Incremental fetch: read the previous run's `<stem>.cache.json` as a baseline and only fetch stargazers added since, slashing API quota on repos with large histories.                                                       |
 
 <!-- markdownlint-enable MD060 -->
 
@@ -77,15 +77,19 @@ jobs:
   skip the commit, so the workflow is idempotent. On `pull_request` events the
   write-back is skipped entirely — forked PRs cannot be pushed to with the
   default token, and the chart does not belong on a feature branch.
-- **Output format**: SVG by default — `output-filename` must end in `.svg`.
-  `output-format` accepts any comma/space-separated combination of `svg`, `png`
-  and `json` (e.g. `svg,png,json`) to generate several formats in one run; the
-  legacy `both` value expands to `svg,png`. With `png` in the list, the chart is
-  rasterized to PNG(s) via resvg (the `.png` name mirrors the `.svg` one, e.g.
-  `star-history-light.png`). resvg loads the xkcd font from the action's
-  `assets/xkcd.ttf`, so the PNG text style matches the SVG instead of falling
-  back to a system font; the result is then palette-quantized via sharp for a
-  ~65% smaller file with pixel-identical output.
+- **Output format**: SVG by default. `output-filename` no longer has to end
+  in `.svg`: a missing or unknown extension (`.svg`, `.png`, `.json` are
+  recognized) is completed per format — e.g. with `output-format: svg,png` a
+  bare `chart` produces `chart.svg` + `chart.png`, and an unknown `chart.webp`
+  becomes `chart.webp.svg` + `chart.webp.png`. `output-format` accepts any
+  comma/space-separated combination of `svg`, `png` and `json` (e.g.
+  `svg,png,json`) to generate several formats in one run. With `png` in the
+  list, the chart is rasterized to PNG(s) via resvg (the `.png` name mirrors
+  the `.svg` one, e.g. `star-history-light.png`). resvg loads the xkcd font
+  from the action's `assets/xkcd.ttf`, so the PNG text style matches the SVG
+  instead of falling back to a system font; the result is then
+  palette-quantized via sharp for a ~65% smaller file with pixel-identical
+  output.
 - **Radar chart**: with `radar: true`, a per-repo radar SVG is written alongside
   the history chart, one file per theme like the history chart itself — for a
   single repo/theme that's `<stem>-radar.svg`; multiple repos append
@@ -143,8 +147,9 @@ to swap the chart automatically with the viewer's color scheme:
 Notes:
 
 - Adjust the paths if you change `output-directory` or `output-filename` (for a
-  single theme, the file keeps the input filename; for both themes, `-light` /
-  `-dark` is inserted before the extension).
+  single theme, the SVG file derives its name from the input stem, completing
+  the `.svg` extension when missing; for both themes, `-light` / `-dark` is
+  inserted before the extension).
 - Relative paths resolve against the repository root on the branch the README is
   rendered from. The workflow commits and pushes the chart, so the image updates
   once the run completes.

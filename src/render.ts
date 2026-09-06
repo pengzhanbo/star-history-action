@@ -102,7 +102,7 @@ export async function renderStarHistorySvg(input: RenderChartInput): Promise<str
   const config: XYChartConfig = {
     title: 'Star History',
     xLabel: 'Date',
-    yLabel: 'Stars',
+    yLabel: 'Github Stars',
     data,
     showDots: false,
     transparent: false,

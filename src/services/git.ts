@@ -105,7 +105,7 @@ export function commitAndPush({ cwd, files, token }: CommitOptions): void {
     'user.email=41898282+github-actions[bot]@users.noreply.github.com',
     'commit',
     '-m',
-    'chore: update star history chart',
+    'chore: update star history chart [skip ci]',
   ])
 
   if (GITHUB_REPOSITORY) {

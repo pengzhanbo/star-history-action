@@ -282,11 +282,11 @@ describe('action end-to-end (mock GitHub API)', () => {
     expect(svg).toContain('background:#fff')
   })
 
-  it('writes PNGs alongside the SVGs when output-format is both', async () => {
+  it('writes PNGs alongside the SVGs when output-format is svg,png', async () => {
     const result = await runAction({
       'INPUT_THEME': 'light',
       // getInput('output-format') reads INPUT_OUTPUT-FORMAT (hyphen, like action.yaml).
-      'INPUT_OUTPUT-FORMAT': 'both',
+      'INPUT_OUTPUT-FORMAT': 'svg,png',
       'INPUT_RADAR': 'true',
     })
     expectSuccess(result)
@@ -414,6 +414,22 @@ describe('action end-to-end (mock GitHub API)', () => {
 
     const data = JSON.parse(readFileSync(join(workspace, 'assets/multi.json'), 'utf8'))
     expect(data.repos).toHaveLength(2)
+  })
+
+  it('appends the format extension to an extension-less output-filename', async () => {
+    const result = await runAction({
+      'INPUT_OUTPUT-FILENAME': 'nameless',
+      'INPUT_OUTPUT-FORMAT': 'svg,png',
+      'INPUT_REPO': 'owner/repo, other/repo',
+      'INPUT_THEME': 'light',
+    })
+    expect(result.stderr).toBe('')
+    expectSuccess(result)
+    // A bare stem is completed per format instead of failing the .svg check.
+    expect(result.stdout).toContain('wrote assets/nameless.svg')
+    expect(result.stdout).toContain('wrote assets/nameless.png')
+    expect(existsSync(join(workspace, 'assets/nameless.svg'))).toBe(true)
+    expect(existsSync(join(workspace, 'assets/nameless.png'))).toBe(true)
   })
 
   it('skips a failing repo and still charts the survivors', async () => {

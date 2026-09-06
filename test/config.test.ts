@@ -102,13 +102,13 @@ describe('parseInputs', () => {
     },
   )
 
-  it.each(['chart.png', 'history'])(
-    'throws when output-filename does not end with .svg (%s)',
+  it.each(['chart.png', 'history', 'stars.json'])(
+    'keeps a non-.svg output-filename without extension validation (%s)',
     async (filename) => {
       stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-filename': filename })
       const parseInputs = await loadParseInputs()
 
-      expect(() => parseInputs()).toThrow('output-filename must end with .svg')
+      expect(parseInputs().outputFilename).toBe(filename)
     },
   )
 
@@ -168,18 +168,13 @@ describe('parseInputs', () => {
     ['png', ['png']],
     ['PNG', ['png']],
     [' png ', ['png']],
-    ['both', ['svg', 'png']],
-    [' Both ', ['svg', 'png']],
-  ] as const)(
-    'accepts output-format %s (lowercased, trimmed, alias-expanded)',
-    async (format, expected) => {
-      stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': format })
-      const parseInputs = await loadParseInputs()
+  ])('accepts output-format %s (lowercased and trimmed)', async (format, expected) => {
+    stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': format })
+    const parseInputs = await loadParseInputs()
 
-      expect(parseInputs().outputFormat).toEqual(expected)
-      expect(parseInputs().includeLogo).toBe(true)
-    },
-  )
+    expect(parseInputs().outputFormat).toEqual(expected)
+    expect(parseInputs().includeLogo).toBe(true)
+  })
 
   it('accepts output-format json (lowercased and trimmed)', async () => {
     stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': ' JSON ' })
@@ -206,10 +201,17 @@ describe('parseInputs', () => {
   })
 
   it('ignores empty fragments and dedupes output formats', async () => {
-    stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': 'svg, svg, , both, json' })
+    stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': 'svg, svg, , png, json' })
     const parseInputs = await loadParseInputs()
 
     expect(parseInputs().outputFormat).toEqual(['svg', 'png', 'json'])
+  })
+
+  it('throws on the legacy both alias', async () => {
+    stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': 'both' })
+    const parseInputs = await loadParseInputs()
+
+    expect(() => parseInputs()).toThrow('output-format "both" is invalid')
   })
 
   it('throws on an unknown output-format', async () => {
@@ -312,6 +314,38 @@ describe('getChartFilePaths', () => {
     ])
   })
 
+  it('appends .svg for an extension-less output-filename', () => {
+    expect(getChartFilePaths({ ...baseConfig, outputFilename: 'chart' })).toEqual([
+      { theme: 'light', svgFile: 'chart.svg' },
+    ])
+  })
+
+  it('appends .png as the primary extension for an extension-less filename when only png is requested', () => {
+    expect(
+      getChartFilePaths({ ...baseConfig, outputFilename: 'chart', outputFormat: ['png', 'json'] }),
+    ).toEqual([{ theme: 'light', svgFile: 'chart.svg', pngFile: 'chart.png' }])
+  })
+
+  it('appends the suffix to an unknown extension instead of replacing it', () => {
+    expect(
+      getChartFilePaths({
+        ...baseConfig,
+        outputFilename: 'chart.webp',
+        outputFormat: ['svg', 'png'],
+      }),
+    ).toEqual([{ theme: 'light', svgFile: 'chart.webp.svg', pngFile: 'chart.webp.png' }])
+  })
+
+  it('keeps a user-supplied .png extension for the png twin', () => {
+    expect(
+      getChartFilePaths({
+        ...baseConfig,
+        outputFilename: 'chart.PNG',
+        outputFormat: ['svg', 'png'],
+      }),
+    ).toEqual([{ theme: 'light', svgFile: 'chart.svg', pngFile: 'chart.PNG' }])
+  })
+
   it('derives a .png file when the format list includes png', () => {
     expect(getChartFilePaths({ ...baseConfig, outputFormat: ['png'] })).toEqual([
       { theme: 'light', svgFile: 'star-history.svg', pngFile: 'star-history.png' },
@@ -379,6 +413,18 @@ describe('getJsonFileName', () => {
   it('never derives theme variants (JSON is theme-agnostic)', async () => {
     expect(getJsonFileName({ ...baseConfig, themes: ['light', 'dark'] })).toBe('star-history.json')
   })
+
+  it('appends .json for an extension-less output-filename', () => {
+    expect(getJsonFileName({ ...baseConfig, outputFilename: 'chart' })).toBe('chart.json')
+  })
+
+  it('keeps a user-supplied .json extension as-is', () => {
+    expect(getJsonFileName({ ...baseConfig, outputFilename: 'chart.JSON' })).toBe('chart.JSON')
+  })
+
+  it('appends .json to an unknown extension instead of replacing it', () => {
+    expect(getJsonFileName({ ...baseConfig, outputFilename: 'chart.webp' })).toBe('chart.webp.json')
+  })
 })
 
 describe('getCacheFileName', () => {
@@ -408,6 +454,16 @@ describe('getCacheFileName', () => {
   it('never derives theme variants (the cache is theme-agnostic)', () => {
     expect(getCacheFileName({ ...baseConfig, themes: ['light', 'dark'] })).toBe(
       'star-history.cache.json',
+    )
+  })
+
+  it('uses the full extension-less name as the stem', () => {
+    expect(getCacheFileName({ ...baseConfig, outputFilename: 'chart' })).toBe('chart.cache.json')
+  })
+
+  it('keeps an unknown extension in the stem (appends, never replaces)', () => {
+    expect(getCacheFileName({ ...baseConfig, outputFilename: 'chart.webp' })).toBe(
+      'chart.webp.cache.json',
     )
   })
 })
@@ -442,6 +498,12 @@ describe('getRadarFileName', () => {
   it('keeps an uppercase extension', () => {
     expect(getRadarFileName({ ...baseConfig, outputFilename: 'chart.SVG' }, 'owner/repo')).toBe(
       'chart-radar.SVG',
+    )
+  })
+
+  it('appends nothing for an extension-less output-filename (charts add the suffix)', () => {
+    expect(getRadarFileName({ ...baseConfig, outputFilename: 'chart' }, 'owner/repo')).toBe(
+      'chart-radar',
     )
   })
 
