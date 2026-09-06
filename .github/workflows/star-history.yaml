@@ -24,6 +24,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           theme: light, dark
           radar: true
+          cache: true
           output-format: svg,png,json
       - uses: ./
         with:
@@ -31,5 +32,5 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           theme: light, dark
           radar: true
-          output-filename: vuepress-theme-plume-star-history
+          output-filename: vuepress-theme-plume-star-history.svg
           output-format: svg,png,json
