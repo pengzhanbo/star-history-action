@@ -15,5 +15,12 @@ export const DEFAULT_MAX_REQUEST_AMOUNT = 15
 export const API_PER_PAGE = 100 // GitHub API max items per request
 export const REQUEST_TIMEOUT_MS = 15000 // 15s timeout for GitHub API calls
 
+// Number of attempts per request, including the first one.
+export const RETRY_MAX_ATTEMPTS = 3
+// Exponential backoff base delay (ms); the nth retry waits base * 2^(n-1).
+export const RETRY_BASE_DELAY_MS = 500
+// Longest we will sleep for a rate-limit reset; anything further fails fast.
+export const MAX_RATE_LIMIT_WAIT_MS = 60_000
+
 export const REPO_INFO_ACCEPT = 'application/vnd.github+json'
 export const STARGAZERS_ACCEPT = 'application/vnd.github.v3.star+json'

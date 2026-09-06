@@ -13,6 +13,7 @@ import subsetFont from "subset-font";
 import { axisBottom, axisLeft } from "d3-axis";
 import duration from "dayjs/plugin/duration.js";
 import relativeTime from "dayjs/plugin/relativeTime.js";
+import { setTimeout } from "node:timers/promises";
 import sharp from "sharp";
 import { execFileSync, spawnSync } from "node:child_process";
 //#region src/common/constants.ts
@@ -843,26 +844,82 @@ function parseStarredAt(value) {
 	return typeof value === "number" ? value : Date.parse(value);
 }
 /**
-* Fetches a URL with auth and timeout handling.
+* Status codes worth retrying: GitHub's rate-limit signals (403/429) and
+* server errors (5xx). Other 4xx responses (auth, not found) cannot be fixed
+* by retrying.
 *
-* 带认证与超时处理地请求一个 URL。
+* 值得重试的状态码：GitHub 限流信号（403/429）与服务器错误（5xx）。
+* 其他 4xx 响应（权限、不存在等）重试无法解决。
+*/
+const RETRYABLE_STATUS = /* @__PURE__ */ new Set([
+	403,
+	429,
+	500,
+	502,
+	503,
+	504
+]);
+/**
+* Fetches a URL with auth, timeout, and retry handling.
+*
+* 带认证、超时与重试处理地请求一个 URL。
+*
+* Network failures, 5xx responses, and rate limits are retried with
+* exponential backoff. On a rate limit (403/429 with `x-ratelimit-remaining:
+* 0`) the request waits for the reset when it is within
+* `MAX_RATE_LIMIT_WAIT_MS`, otherwise it fails fast with a readable error
+* that includes the reset time.
+*
+* 网络错误、5xx 响应与限流会按指数退避重试。遇到限流（403/429 且
+* `x-ratelimit-remaining: 0`）时，若重置时间在 `MAX_RATE_LIMIT_WAIT_MS`
+* 以内则等待重置后重试，否则快速失败并抛出含重置时间的可读错误。
 *
 * @param url - Request target / 请求目标
 * @param token - GitHub token used as `Authorization: token` /
 *   用于 `Authorization: token` 的 GitHub 令牌
 * @param accept - Accept header value / Accept 请求头值
+* @param retryDelayMs - Backoff base delay; tests inject a tiny value to
+*   avoid real sleeps / 退避基准延迟；测试注入极小值以避免真实等待
 * @returns The fetch response (caller must check `ok` and parse the body) /
 *   fetch 响应（调用方需检查 `ok` 并解析响应体）
 */
-function request(url, token, accept = REPO_INFO_ACCEPT) {
+async function request(url, token, accept = REPO_INFO_ACCEPT, retryDelayMs = 500) {
 	const headers = {
 		Accept: accept,
 		Authorization: `token ${token}`
 	};
-	return withTimeout((signal) => fetch(url, {
-		headers,
-		signal
-	}), REQUEST_TIMEOUT_MS);
+	for (let attempt = 0; attempt < 3; attempt++) {
+		let res;
+		try {
+			res = await withTimeout((signal) => fetch(url, {
+				headers,
+				signal
+			}), REQUEST_TIMEOUT_MS);
+		} catch (error) {
+			if (attempt < 2) {
+				await setTimeout(retryDelayMs * 2 ** attempt);
+				continue;
+			}
+			throw error instanceof Error ? error : new Error(String(error));
+		}
+		if (res.ok || !RETRYABLE_STATUS.has(res.status)) return res;
+		if ((res.status === 403 || res.status === 429) && res.headers.get("x-ratelimit-remaining") === "0") {
+			const resetSec = Number(res.headers.get("x-ratelimit-reset") ?? 0);
+			const waitMs = resetSec * 1e3 - Date.now();
+			if (resetSec > 0 && waitMs > 0 && waitMs <= 6e4 && attempt < 2) {
+				await setTimeout(waitMs);
+				continue;
+			}
+			const resetAt = resetSec > 0 ? (/* @__PURE__ */ new Date(resetSec * 1e3)).toISOString() : "unknown";
+			throw new Error(`GitHub API rate limit exceeded (HTTP ${res.status}); quota resets at ${resetAt}`);
+		}
+		if (attempt < 2) {
+			await setTimeout(retryDelayMs * 2 ** attempt);
+			continue;
+		}
+		return res;
+	}
+	throw new Error("request retries exhausted");
 }
 /**
 * Fetches one page of stargazers and returns their `starred_at` timestamps.

@@ -77,6 +77,86 @@ describe('request', () => {
       Accept: STARGAZERS_ACCEPT,
     })
   })
+
+  it('retries a 5xx response with backoff and succeeds', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}, {}, 503))
+      .mockResolvedValueOnce(jsonResponse({}))
+
+    await request('https://api.github.test/x', TOKEN, REPO_INFO_ACCEPT, 0)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries a network failure and succeeds', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(jsonResponse({}))
+
+    await request('https://api.github.test/x', TOKEN, REPO_INFO_ACCEPT, 0)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns the last response when every 5xx retry fails', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}, {}, 503))
+
+    const res = await request('https://api.github.test/x', TOKEN, REPO_INFO_ACCEPT, 0)
+
+    expect(res.status).toBe(503)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('surfaces the last network error once retries are exhausted', async () => {
+    fetchMock.mockRejectedValue(new TypeError('fetch failed'))
+
+    await expect(request('https://api.github.test/x', TOKEN, REPO_INFO_ACCEPT, 0)).rejects.toThrow(
+      'fetch failed',
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not retry non-retryable 4xx responses', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}, {}, 404))
+
+    const res = await request('https://api.github.test/x', TOKEN, REPO_INFO_ACCEPT, 0)
+
+    expect(res.status).toBe(404)
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('waits for a near rate-limit reset and retries', async () => {
+    const resetSec = Math.floor(Date.now() / 1000) + 1
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {},
+          { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetSec) },
+          403,
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({}))
+
+    await request('https://api.github.test/x', TOKEN, REPO_INFO_ACCEPT, 0)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails fast with the reset time when the rate-limit reset is too far away', async () => {
+    const resetSec = Math.floor(Date.now() / 1000) + 3600
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {},
+        { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetSec) },
+        403,
+      ),
+    )
+
+    await expect(request('https://api.github.test/x', TOKEN, REPO_INFO_ACCEPT, 0)).rejects.toThrow(
+      /GitHub API rate limit exceeded \(HTTP 403\); quota resets at \d{4}-\d{2}-\d{2}T/,
+    )
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
 })
 
 describe('getRepoStargazers', () => {
@@ -187,11 +267,11 @@ describe('getRepoStarRecords', () => {
       if (url.endsWith('/repos/owner/repo')) {
         return jsonResponse({ stargazers_count: 10, created_at: '2024-01-01T00:00:00Z' })
       }
-      return jsonResponse({}, {}, 500)
+      return jsonResponse({}, {}, 404)
     })
 
     await expect(getRepoStarRecords('owner/repo', TOKEN, 15)).rejects.toThrow(
-      'Failed to get repo owner/repo star records: HTTP 500',
+      'Failed to get repo owner/repo star records: HTTP 404',
     )
   })
 
