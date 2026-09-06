@@ -8,7 +8,8 @@ branding:
 
 inputs:
   repo:
-    description: Repository name, e.g. pengzhanbo/repo-star-history
+    description: Repository name(s), e.g. pengzhanbo/star-history-action. Comma or
+      space separated to compare multiple repos in one chart
     required: true
     default: ${{ github.repository }}
   token:

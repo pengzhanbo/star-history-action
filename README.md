@@ -35,14 +35,14 @@ jobs:
 
 <!-- markdownlint-disable MD060 -->
 
-| Name               | Required | Default                    | Description                                                                                                                 |
-| ------------------ | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `repo`             | No       | `${{ github.repository }}` | Repository to chart, e.g. `pengzhanbo/star-history-action`.                                                                 |
-| `token`            | No       | `${{ github.token }}`      | GitHub token with read access to the target repo. Use a PAT for private or GHES targets.                                    |
-| `output-directory` | No       | `assets`                   | Directory to write the chart into, relative to the workspace root.                                                          |
-| `output-filename`  | No       | `star-history.svg`         | Output file name. Must end with `.svg`. When both themes are configured, `-light`/`-dark` is appended before the extension. |
-| `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                           |
-| `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                        |
+| Name               | Required | Default                    | Description                                                                                                                                         |
+| ------------------ | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo`             | No       | `${{ github.repository }}` | Repository to chart, e.g. `pengzhanbo/star-history-action`. Comma/space separated (e.g. `a/repo1, b/repo2`) to compare multiple repos in one chart. |
+| `token`            | No       | `${{ github.token }}`      | GitHub token with read access to the target repo. Use a PAT for private or GHES targets.                                                            |
+| `output-directory` | No       | `assets`                   | Directory to write the chart into, relative to the workspace root.                                                                                  |
+| `output-filename`  | No       | `star-history.svg`         | Output file name. Must end with `.svg`. When both themes are configured, `-light`/`-dark` is appended before the extension.                         |
+| `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                                                   |
+| `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                                                |
 
 <!-- markdownlint-enable MD060 -->
 
@@ -50,10 +50,13 @@ jobs:
 
 - **Data source**: the GitHub REST API (`GITHUB_API_URL` is honored, so GitHub
   Enterprise instances work too).
-- **History fidelity**: up to 15 pages are fetched. Repositories whose history
-  fits within that budget (≈1,500 stars) get an exact per-day series;
-  larger repositories are sampled at evenly spaced boundary points
-  (each within ±100 stars of the real count).
+- **Multi-repo comparison**: pass several comma/space-separated `owner/repo`
+  values to `repo` and the chart draws one line per repository on shared axes,
+  with a per-repo legend entry (and avatar when the repos share one owner).
+- **History fidelity**: up to 15 pages are fetched per repository.
+  Repositories whose history fits within that budget (≈1,500 stars) get an
+  exact per-day series; larger repositories are sampled at evenly spaced
+  boundary points (each within ±100 stars of the real count).
 - **Rendering**: a hand-drawn xkcd-style line chart, with the xkcd font
   embedded inline so the SVG renders standalone anywhere.
 - **Commit & push**: the chart is committed as `github-actions[bot]` and pushed
