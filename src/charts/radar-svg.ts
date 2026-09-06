@@ -11,7 +11,7 @@ import { getXkcdFontUrl } from '../common/font-subset.js'
  *
  * 用于绘制雷达图的仓库指标——0–99 百分位数值。
  */
-interface RepoAttributes {
+export interface RepoAttributes {
   stars: number
   new_stars: number
   pushes: number

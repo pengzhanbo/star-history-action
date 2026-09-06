@@ -33,14 +33,16 @@ jobs:
 
 <!-- markdownlint-disable MD060 -->
 
-| 名称               | 必填 | 默认值                     | 说明                                                                                      |
-| ------------------ | ---- | -------------------------- | ----------------------------------------------------------------------------------------- |
-| `repo`             | 否   | `${{ github.repository }}` | 要绘制图表的仓库，例如 `pengzhanbo/star-history-action`。                                 |
-| `token`            | 否   | `${{ github.token }}`      | 对目标仓库具有读取权限的 GitHub token。对于私有仓库或 GHES 目标，请使用 PAT。             |
-| `output-directory` | 否   | `assets`                   | 图表的输出目录，相对于工作区根目录。                                                      |
-| `output-filename`  | 否   | `star-history.svg`         | 输出文件名。必须以 `.svg` 结尾。当配置了两种主题时，会在扩展名之前追加 `-light`/`-dark`。 |
-| `svg-width`        | 否   | `960`                      | 生成的 SVG 宽度（像素）；高度为宽度的 2/3。                                               |
-| `theme`            | 否   | `light`                    | 图表主题：`light`、`dark`，或用逗号/空格分隔的 `light, dark` 以同时输出两种主题。         |
+| 名称               | 必填 | 默认值                     | 说明                                                                                                                                         |
+| ------------------ | ---- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo`             | 否   | `${{ github.repository }}` | 要绘制图表的仓库，例如 `pengzhanbo/star-history-action`。                                                                                    |
+| `token`            | 否   | `${{ github.token }}`      | 对目标仓库具有读取权限的 GitHub token。对于私有仓库或 GHES 目标，请使用 PAT。                                                                |
+| `output-directory` | 否   | `assets`                   | 图表的输出目录，相对于工作区根目录。                                                                                                         |
+| `output-filename`  | 否   | `star-history.svg`         | 输出文件名。必须以 `.svg` 结尾。当配置了两种主题时，会在扩展名之前追加 `-light`/`-dark`。                                                    |
+| `svg-width`        | 否   | `960`                      | 生成的 SVG 宽度（像素）；高度为宽度的 2/3。                                                                                                  |
+| `theme`            | 否   | `light`                    | 图表主题：`light`、`dark`，或用逗号/空格分隔的 `light, dark` 以同时输出两种主题。                                                            |
+| `output-format`    | 否   | `svg`                      | 输出文件格式：`svg`（默认）、`png`（由 SVG 栅格化）或 `both`。                                                                               |
+| `radar`            | 否   | `false`                    | 是否同时为每个仓库渲染一份雷达图 SVG，展示仓库健康指标（stars、new stars、pushes、contributors、issues closed、forks），各项均按 0–99 计分。 |
 
 <!-- markdownlint-enable MD060 -->
 
@@ -50,7 +52,8 @@ jobs:
 - **历史保真度**：最多抓取 15 页。历史记录在该预算内（约 1,500 颗 star）的仓库，会得到精确的逐日数据序列；更大的仓库会在均匀分布的边界点采样（每个点与真实数量的偏差在 ±100 颗 star 以内）。
 - **渲染**：手绘风格的 xkcd 线条图，xkcd 字体以内联方式嵌入，因此 SVG 可在任何地方独立渲染。
 - **提交与推送**：图表以 `github-actions[bot]` 身份提交，并推送到默认远程仓库的当前分支。重复运行时若无任何变更，则跳过提交，因此工作流是幂等的。在 `pull_request` 事件中会完全跳过写回——分叉的 PR 无法使用默认 token 推送，且图表不属于功能分支。
-- **输出格式**：始终为 SVG——`output-filename` 必须以 `.svg` 结尾。
+- **输出格式**：默认为 SVG——`output-filename` 必须以 `.svg` 结尾。当 `output-format` 为 `png` 或 `both` 时，图表会通过 sharp 栅格化为 PNG（`.png` 文件名与 `.svg` 对应，例如 `star-history-light.png`）。注意：栅格化使用系统回退字体，因此 PNG 是栅格预览，并非 SVG 的逐像素一致副本。
+- **雷达图**：当 `radar: true` 时，会在历史图表之外为每个仓库写入一份雷达图 SVG——单仓库为 `<stem>-radar.svg`，多仓库对比时为 `<stem>-radar-<owner>-<repo>.svg`。六项指标（stars、30 天内的 new stars、pushes、contributors、issues closed、forks）从 GitHub API 抓取，并按对数刻度映射为 0–99 分，因此雷达图比较的是指标强度而非原始数量。雷达图始终输出 SVG（不做 PNG 栅格化），并与历史图表一起提交。
 
 ## 在 README 中嵌入图表
 

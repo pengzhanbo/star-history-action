@@ -68,6 +68,12 @@ export interface ActionConfig {
    * 需要渲染的主题，每个主题输出一个 SVG 文件。
    */
   themes: ChartTheme[] // default ['light']
+  /**
+   * Whether to also render a per-repo radar SVG chart alongside the star history.
+   *
+   * 是否在 star history 之外再渲染每个仓库的雷达图 SVG。
+   */
+  radar: boolean // default false
 }
 
 /**
@@ -157,6 +163,13 @@ export function parseInputs(): ActionConfig {
     throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, or both`)
   }
 
+  const rawRadar = getInput('radar')
+  const radarValue = rawRadar.trim().toLowerCase()
+  if (radarValue && radarValue !== 'true' && radarValue !== 'false') {
+    throw new Error(`radar "${rawRadar}" is invalid; use true or false`)
+  }
+  const radar = radarValue === 'true'
+
   const rawWidth = getInput('svg-width') || '960'
   const svgWidth = Number(rawWidth)
   if (!Number.isInteger(svgWidth) || svgWidth < 1) {
@@ -183,7 +196,7 @@ export function parseInputs(): ActionConfig {
     themes.push('light')
   }
 
-  return { repos, token, outputDirectory, outputFilename, outputFormat, svgWidth, themes }
+  return { repos, token, outputDirectory, outputFilename, outputFormat, svgWidth, themes, radar }
 }
 
 /**
@@ -238,4 +251,27 @@ export function getChartFilePaths(config: ActionConfig): ChartFileOutput[] {
     }
     return output
   })
+}
+
+/**
+ * Derives the radar chart file name for one repo. Single-repo runs keep a
+ * plain `<stem>-radar.svg`; multi-repo runs suffix the repo (`/` → `-`) so
+ * each repo gets its own file.
+ *
+ * 为单个仓库派生雷达图文件名。单仓库运行保留 `<stem>-radar.svg`；
+ * 多仓库运行追加仓库名（`/` 替换为 `-`），使每个仓库各自成文件。
+ *
+ * @param config - Parsed action inputs / 解析后的动作输入
+ * @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+ * @returns The radar chart file name / 雷达图文件名
+ * @example
+ * getRadarFileName({ outputFilename: 'star-history.svg', repos: ['a/b', 'c/d'] }, 'a/b')
+ * // 'star-history-radar-a-b.svg'
+ */
+export function getRadarFileName(config: ActionConfig, repo: string): string {
+  const i = config.outputFilename.lastIndexOf('.')
+  const ext = i > 0 ? config.outputFilename.slice(i) : '.svg'
+  const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename
+  const repoPart = config.repos.length > 1 ? `-${repo.replaceAll('/', '-')}` : ''
+  return `${stem}-radar${repoPart}${ext}`
 }

@@ -1,6 +1,6 @@
 import type { ActionConfig } from '../src/services/config.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getChartFilePaths } from '../src/services/config.js'
+import { getChartFilePaths, getRadarFileName } from '../src/services/config.js'
 
 // env.js reads process.env at module evaluation, so parseInputs scenarios
 // re-import the module after stubbing env vars.
@@ -37,6 +37,7 @@ describe('parseInputs', () => {
       outputFormat: 'svg',
       svgWidth: 960,
       themes: ['light'],
+      radar: false,
     })
   })
 
@@ -171,6 +172,27 @@ describe('parseInputs', () => {
 
     expect(() => parseInputs()).toThrow('output-format "webp" is invalid')
   })
+
+  it.each(['true', 'TRUE', ' True '])('accepts radar %s (truthy)', async (radar) => {
+    stubInputs({ repo: 'owner/repo', token: 't', radar })
+    const parseInputs = await loadParseInputs()
+
+    expect(parseInputs().radar).toBe(true)
+  })
+
+  it('defaults radar to false when the input is empty', async () => {
+    stubInputs({ repo: 'owner/repo', token: 't', radar: '' })
+    const parseInputs = await loadParseInputs()
+
+    expect(parseInputs().radar).toBe(false)
+  })
+
+  it('throws on an invalid radar value', async () => {
+    stubInputs({ repo: 'owner/repo', token: 't', radar: 'yes' })
+    const parseInputs = await loadParseInputs()
+
+    expect(() => parseInputs()).toThrow('radar "yes" is invalid; use true or false')
+  })
 })
 
 describe('getChartFilePaths', () => {
@@ -182,6 +204,7 @@ describe('getChartFilePaths', () => {
     outputFormat: 'svg',
     svgWidth: 960,
     themes: ['light'],
+    radar: false,
   }
 
   it('uses the output-filename as-is for a single theme', () => {
@@ -227,5 +250,37 @@ describe('getChartFilePaths', () => {
       { theme: 'light', svgFile: 'star-history-light.svg', pngFile: 'star-history-light.png' },
       { theme: 'dark', svgFile: 'star-history-dark.svg', pngFile: 'star-history-dark.png' },
     ])
+  })
+})
+
+describe('getRadarFileName', () => {
+  const baseConfig: ActionConfig = {
+    repos: ['owner/repo'],
+    token: 't',
+    outputDirectory: 'assets',
+    outputFilename: 'star-history.svg',
+    outputFormat: 'svg',
+    svgWidth: 960,
+    themes: ['light'],
+    radar: true,
+  }
+
+  it('derives `<stem>-radar.svg` for a single repo', () => {
+    expect(getRadarFileName(baseConfig, 'owner/repo')).toBe('star-history-radar.svg')
+  })
+
+  it('appends the repo (slashes to dashes) for multi-repo runs', () => {
+    expect(getRadarFileName({ ...baseConfig, repos: ['a/b', 'c/d'] }, 'a/b')).toBe(
+      'star-history-radar-a-b.svg',
+    )
+    expect(getRadarFileName({ ...baseConfig, repos: ['a/b', 'c/d'] }, 'c/d')).toBe(
+      'star-history-radar-c-d.svg',
+    )
+  })
+
+  it('keeps an uppercase extension', () => {
+    expect(getRadarFileName({ ...baseConfig, outputFilename: 'chart.SVG' }, 'owner/repo')).toBe(
+      'chart-radar.SVG',
+    )
   })
 })

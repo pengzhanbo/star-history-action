@@ -32,7 +32,7 @@ const API_BASE = GITHUB_API_URL.replace(/\/+$/, '')
  * @returns The page count, or null when the header is missing or malformed /
  *   页码总数；响应头缺失或格式非法时返回 null
  */
-function parseLastPage(link: string): number | null {
+export function parseLastPage(link: string): number | null {
   const match = /<([^>]+)>\s*;\s*rel="last"/.exec(link)
   if (!match) {
     return null

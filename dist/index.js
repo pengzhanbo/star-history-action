@@ -2,6 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getInput, info, setFailed } from "@actions/core";
 import sharp from "sharp";
+import { readFileSync } from "node:fs";
+import subsetFont from "subset-font";
 import { JSDOM } from "jsdom";
 import { optimize } from "svgo";
 import { isInteger, promiseParallel, range, uniq, withTimeout } from "@pengzhanbo/utils";
@@ -9,13 +11,212 @@ import { scaleLinear, scaleSymlog, scaleTime } from "d3-scale";
 import { select } from "d3-selection";
 import { curveMonotoneX, line } from "d3-shape";
 import dayjs from "dayjs";
-import { readFileSync } from "node:fs";
-import subsetFont from "subset-font";
 import { axisBottom, axisLeft } from "d3-axis";
 import duration from "dayjs/plugin/duration.js";
 import relativeTime from "dayjs/plugin/relativeTime.js";
 import { setTimeout } from "node:timers/promises";
 import { execFileSync, spawnSync } from "node:child_process";
+//#region src/common/font-subset.ts
+let ttfBuffer;
+function getTtfBuffer() {
+	ttfBuffer ??= readFileSync(resolve("assets/xkcd.ttf"));
+	return ttfBuffer;
+}
+let fontDataUrl;
+/**
+* Returns the full xkcd TrueType font as a data URL, read from
+* `assets/xkcd.ttf` at runtime.
+*
+* 返回完整的 xkcd TrueType 字体 data URL，运行时从 `assets/xkcd.ttf`
+* 读取。用于渲染期兜底以及未内联子集字体时仍可显示完整字体。
+*
+* @returns A fonts/ttf data URL / fonts/ttf data URL
+*/
+function getXkcdFontUrl() {
+	fontDataUrl ??= `data:font/ttf;charset=utf-8;base64,${getTtfBuffer().toString("base64")}`;
+	return fontDataUrl;
+}
+const urlCache = /* @__PURE__ */ new Map();
+/**
+* Subsets the xkcd font to only the glyphs needed to render `text`, returning
+* a woff2 data URL ready to be inlined into the SVG.
+*
+* 将 xkcd 字体按 `text` 中实际出现的字符做子集化，
+* 返回可直接内联进 SVG 的 woff2 data URL。
+*
+* @param text - All text rendered in the SVG / SVG 中渲染的全部文本
+* @returns A woff2 data URL / woff2 data URL
+*/
+function getSubsetFontUrl(text) {
+	const key = text || " ";
+	let pending = urlCache.get(key);
+	if (!pending) {
+		pending = subsetFont(getTtfBuffer(), key, { targetFormat: "woff2" }).then((buf) => `data:font/woff2;charset=utf-8;base64,${buf.toString("base64")}`);
+		urlCache.set(key, pending);
+	}
+	return pending;
+}
+//#endregion
+//#region src/charts/radar-svg.ts
+/**
+* Pure-math radar SVG generator — no D3 dependency.
+* Produces a complete <svg> string suitable for embedding in satori
+* (as a data:image/svg+xml;base64 src) or direct rendering.
+*/
+/**
+* Radar axis labels, clockwise from 12 o'clock.
+*
+* 雷达轴标签，从 12 点方向顺时针排列。
+*/
+const LABELS = [
+	"Stars",
+	"New Stars",
+	"Issues Closed",
+	"Contributors",
+	"Pushes",
+	"Forks"
+];
+/**
+* Attribute keys in the same order as {@link LABELS}.
+*
+* 与 {@link LABELS} 顺序一致的属性键。
+*/
+const KEYS = [
+	"stars",
+	"new_stars",
+	"issues_closed",
+	"contributors",
+	"pushes",
+	"forks"
+];
+/**
+* Seeds a deterministic PRNG (LCG) so the wobble is reproducible.
+*
+* 构造一个可复现的伪随机数生成器（线性同余），保证抖动结果可复现。
+*
+* @param seed - Seed integer / 随机种子整数
+* @returns A function yielding floats in [0, 1) / 返回生成 [0, 1) 浮点数的函数
+*/
+function createRng(seed) {
+	let s = seed | 0;
+	return () => {
+		s = s * 1664525 + 1013904223 | 0;
+		return (s >>> 0) / 4294967296;
+	};
+}
+/**
+* Generate a wobbly SVG path string for a closed polygon.
+*
+* 为多边形生成带抖动效果的 SVG 路径字符串。
+*
+* @param points - Array of [x, y] points for the polygon / 多边形顶点坐标数组
+* @param jitter - Amount of wobble (0-1) / 抖动幅度（0-1）
+* @param rng - Random number generator function / 随机数生成函数
+* @param closed - Whether to close the polygon (default true) / 是否闭合多边形（默认 true）
+* @returns SVG path string, or `''` for fewer than two points /
+*   SVG 路径字符串；少于两个点时返回空字符串
+*/
+function sketchyPolygonPath(points, jitter, rng, closed = true) {
+	if (points.length < 2) return "";
+	const segments = [];
+	const len = closed ? points.length : points.length - 1;
+	for (let i = 0; i < len; i++) {
+		const [x0, y0] = points[i];
+		const [x1, y1] = points[(i + 1) % points.length];
+		const dx = x1 - x0;
+		const dy = y1 - y0;
+		const dist = Math.sqrt(dx * dx + dy * dy);
+		const nx = -dy / (dist || 1);
+		const ny = dx / (dist || 1);
+		const steps = Math.max(Math.round(dist / 8), 3);
+		for (let s = 0; s <= steps; s++) {
+			const t = s / steps;
+			const px = x0 + dx * t;
+			const py = y0 + dy * t;
+			const wobbleScale = Math.sin(t * Math.PI);
+			const offset = (rng() - .5) * 2 * jitter * wobbleScale;
+			const fx = px + nx * offset;
+			const fy = py + ny * offset;
+			if (i === 0 && s === 0) segments.push(`M ${fx.toFixed(1)},${fy.toFixed(1)}`);
+			else segments.push(`L ${fx.toFixed(1)},${fy.toFixed(1)}`);
+		}
+	}
+	if (closed) segments.push("Z");
+	return segments.join(" ");
+}
+/**
+* Pure-math radar SVG generator — no D3 dependency.
+* Produces a complete `<svg>` string suitable for embedding in satori
+* (as a data:image/svg+xml;base64 src) or direct rendering.
+*
+* 纯数学计算的雷达图 SVG 生成器——不依赖 D3。
+* 生成完整的 `<svg>` 字符串，可用于嵌入 satori（作为 data:image/svg+xml;
+* base64 的 src）或直接渲染。
+*
+* @param attributes - Repo metrics (0–99 percentiles) / 仓库指标（0–99 百分位）
+* @param size - Square side length in px (default 400) / 正方形边长（像素，默认 400）
+* @returns A complete standalone SVG string / 完整的独立 SVG 字符串
+* @example
+* const svg = renderRadarSvg({ stars: 90, new_stars: 40, pushes: 20 }, 400)
+*/
+function renderRadarSvg(attributes, size = 400) {
+	const radius = (size - 140) / 2;
+	const cx = size / 2;
+	const cy = size / 2;
+	const numAxes = LABELS.length;
+	const angleSlice = Math.PI * 2 / numAxes;
+	const rng = createRng(42);
+	const scaleR = (value) => value / 99 * radius;
+	const polygonPoints = (r) => Array.from({ length: numAxes }, (_, i) => {
+		const angle = angleSlice * i - Math.PI / 2;
+		return [Math.cos(angle) * r, Math.sin(angle) * r];
+	});
+	const parts = [];
+	parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="font-family:xkcd,cursive;background:transparent">`);
+	parts.push(`<defs><style type="text/css">@font-face { font-family: "xkcd"; src: url(${getXkcdFontUrl()}) format("truetype"); }</style></defs>`);
+	parts.push(`<g transform="translate(${cx},${cy})">`);
+	const levels = [
+		25,
+		50,
+		75
+	];
+	for (const level of levels) {
+		const pts = polygonPoints(scaleR(level));
+		parts.push(`<path d="${sketchyPolygonPath(pts, 1.5, rng)}" fill="none" stroke="#ccc" stroke-width="1" stroke-dasharray="6,4"/>`);
+	}
+	const outerPts = polygonPoints(radius);
+	parts.push(`<path d="${sketchyPolygonPath(outerPts, 2, rng)}" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="8,5"/>`);
+	for (let i = 0; i < numAxes; i++) {
+		const angle = angleSlice * i - Math.PI / 2;
+		const x = Math.cos(angle) * radius;
+		const y = Math.sin(angle) * radius;
+		parts.push(`<path d="${sketchyPolygonPath([[0, 0], [x, y]], 1.5, rng, false)}" fill="none" stroke="#bbb" stroke-width="1"/>`);
+	}
+	const dataColor = "#16a34a";
+	const dataPts = KEYS.map((key, i) => {
+		const value = attributes[key];
+		const angle = angleSlice * i - Math.PI / 2;
+		const r = scaleR(value);
+		return [Math.cos(angle) * r, Math.sin(angle) * r];
+	});
+	parts.push(`<path d="${sketchyPolygonPath(dataPts, 3, rng)}" fill="${dataColor}" fill-opacity="0.15" stroke="${dataColor}" stroke-width="3.5" stroke-linejoin="round"/>`);
+	for (const [x, y] of dataPts) parts.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${dataColor}" stroke="white" stroke-width="2"/>`);
+	for (const level of levels) {
+		const r = scaleR(level);
+		parts.push(`<text x="4" y="${(-r - 2).toFixed(1)}" font-size="9" fill="#999" stroke="none">${level}</text>`);
+	}
+	for (let i = 0; i < numAxes; i++) {
+		const angle = angleSlice * i - Math.PI / 2;
+		const labelRadius = radius + (i === 1 || i === 2 ? 40 : 28);
+		const x = Math.cos(angle) * labelRadius;
+		const y = Math.sin(angle) * labelRadius;
+		parts.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="17" fill="#555" stroke="none">${LABELS[i]}</text>`);
+	}
+	parts.push(`</g>`);
+	parts.push(`</svg>`);
+	return parts.join("");
+}
+//#endregion
 //#region src/common/constants.ts
 const REQUEST_TIMEOUT_MS = 15e3;
 const REPO_INFO_ACCEPT = "application/vnd.github+json";
@@ -95,47 +296,6 @@ function addFilter(selection) {
 		f.append("feTurbulence").attr("type", "fractalNoise").attr("baseFrequency", "0.05").attr("result", "noise");
 		f.append("feDisplacementMap").attr("scale", "5").attr("xChannelSelector", "R").attr("yChannelSelector", "G").attr("in", "SourceGraphic").attr("in2", "noise");
 	});
-}
-//#endregion
-//#region src/common/font-subset.ts
-let ttfBuffer;
-function getTtfBuffer() {
-	ttfBuffer ??= readFileSync(resolve("assets/xkcd.ttf"));
-	return ttfBuffer;
-}
-let fontDataUrl;
-/**
-* Returns the full xkcd TrueType font as a data URL, read from
-* `assets/xkcd.ttf` at runtime.
-*
-* 返回完整的 xkcd TrueType 字体 data URL，运行时从 `assets/xkcd.ttf`
-* 读取。用于渲染期兜底以及未内联子集字体时仍可显示完整字体。
-*
-* @returns A fonts/ttf data URL / fonts/ttf data URL
-*/
-function getXkcdFontUrl() {
-	fontDataUrl ??= `data:font/ttf;charset=utf-8;base64,${getTtfBuffer().toString("base64")}`;
-	return fontDataUrl;
-}
-const urlCache = /* @__PURE__ */ new Map();
-/**
-* Subsets the xkcd font to only the glyphs needed to render `text`, returning
-* a woff2 data URL ready to be inlined into the SVG.
-*
-* 将 xkcd 字体按 `text` 中实际出现的字符做子集化，
-* 返回可直接内联进 SVG 的 woff2 data URL。
-*
-* @param text - All text rendered in the SVG / SVG 中渲染的全部文本
-* @returns A woff2 data URL / woff2 data URL
-*/
-function getSubsetFontUrl(text) {
-	const key = text || " ";
-	let pending = urlCache.get(key);
-	if (!pending) {
-		pending = subsetFont(getTtfBuffer(), key, { targetFormat: "woff2" }).then((buf) => `data:font/woff2;charset=utf-8;base64,${buf.toString("base64")}`);
-		urlCache.set(key, pending);
-	}
-	return pending;
 }
 //#endregion
 //#region src/charts/add-font.ts
@@ -806,7 +966,7 @@ function formatDate(date) {
 }
 //#endregion
 //#region src/services/api.ts
-const API_BASE = GITHUB_API_URL.replace(/\/+$/, "");
+const API_BASE$1 = GITHUB_API_URL.replace(/\/+$/, "");
 /**
 * Extracts the page number of the `rel="last"` link from a GitHub Link header.
 *
@@ -932,7 +1092,7 @@ async function request(url, token, accept = REPO_INFO_ACCEPT, retryDelayMs = 500
 * @throws {Error} When the API response is not OK / 当 API 响应非成功状态时抛出
 */
 async function getRepoStargazers(repo, token, page) {
-	const res = await request(`${API_BASE}/repos/${repo}/stargazers?per_page=100${page ? `&page=${page}` : ""}`, token, STARGAZERS_ACCEPT);
+	const res = await request(`${API_BASE$1}/repos/${repo}/stargazers?per_page=100${page ? `&page=${page}` : ""}`, token, STARGAZERS_ACCEPT);
 	if (!res.ok) throw new Error(`Failed to get repo ${repo} stargazers: HTTP ${res.status}`);
 	return (await res.json()).map((item) => parseStarredAt(item.starred_at));
 }
@@ -960,13 +1120,13 @@ async function getRepoStargazers(repo, token, page) {
 *   当仓库没有 star 或 API 响应非成功状态时抛出
 */
 async function getRepoStarRecords(repo, token, maxRequestAmount) {
-	const repoRes = await request(`${API_BASE}/repos/${repo}`, token);
+	const repoRes = await request(`${API_BASE$1}/repos/${repo}`, token);
 	if (!repoRes.ok) throw new Error(`Failed to get repo ${repo} info: HTTP ${repoRes.status}`);
 	const repoData = await repoRes.json();
 	const total = repoData.stargazers_count ?? 0;
 	const createdAt = repoData.created_at ?? "";
 	if (total === 0) throw new Error(`Repo ${repo} has no star records`);
-	const pageOneRes = await request(`${API_BASE}/repos/${repo}/stargazers?per_page=100&page=1`, token, STARGAZERS_ACCEPT);
+	const pageOneRes = await request(`${API_BASE$1}/repos/${repo}/stargazers?per_page=100&page=1`, token, STARGAZERS_ACCEPT);
 	if (!pageOneRes.ok) throw new Error(`Failed to get repo ${repo} star records: HTTP ${pageOneRes.status}`);
 	const pageCount = parseLastPage(pageOneRes.headers.get("link") ?? "") ?? 1;
 	const firstPageMs = (await pageOneRes.json()).map((item) => parseStarredAt(item.starred_at));
@@ -1009,7 +1169,7 @@ async function getRepoStarRecords(repo, token, maxRequestAmount) {
 */
 async function getRepoLogo(repo, token) {
 	const owner = repo.split("/")[0];
-	const response = await request(`${API_BASE}/users/${owner}`, token);
+	const response = await request(`${API_BASE$1}/users/${owner}`, token);
 	if (response.ok) {
 		const data = await response.json();
 		if (!data.avatar_url) return "";
@@ -1098,6 +1258,10 @@ function parseInputs() {
 	const rawFormat = getInput("output-format") || "svg";
 	const outputFormat = rawFormat.trim().toLowerCase();
 	if (!isOutputFormat(outputFormat)) throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, or both`);
+	const rawRadar = getInput("radar");
+	const radarValue = rawRadar.trim().toLowerCase();
+	if (radarValue && radarValue !== "true" && radarValue !== "false") throw new Error(`radar "${rawRadar}" is invalid; use true or false`);
+	const radar = radarValue === "true";
 	const rawWidth = getInput("svg-width") || "960";
 	const svgWidth = Number(rawWidth);
 	if (!Number.isInteger(svgWidth) || svgWidth < 1) throw new Error(`svg-width must be a positive integer, got "${rawWidth}"`);
@@ -1117,7 +1281,8 @@ function parseInputs() {
 		outputFilename,
 		outputFormat,
 		svgWidth,
-		themes
+		themes,
+		radar
 	};
 }
 /**
@@ -1158,6 +1323,26 @@ function getChartFilePaths(config) {
 		if (config.outputFormat !== "svg") output.pngFile = svgFile.replace(/\.svg$/i, ".png");
 		return output;
 	});
+}
+/**
+* Derives the radar chart file name for one repo. Single-repo runs keep a
+* plain `<stem>-radar.svg`; multi-repo runs suffix the repo (`/` → `-`) so
+* each repo gets its own file.
+*
+* 为单个仓库派生雷达图文件名。单仓库运行保留 `<stem>-radar.svg`；
+* 多仓库运行追加仓库名（`/` 替换为 `-`），使每个仓库各自成文件。
+*
+* @param config - Parsed action inputs / 解析后的动作输入
+* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+* @returns The radar chart file name / 雷达图文件名
+* @example
+* getRadarFileName({ outputFilename: 'star-history.svg', repos: ['a/b', 'c/d'] }, 'a/b')
+* // 'star-history-radar-a-b.svg'
+*/
+function getRadarFileName(config, repo) {
+	const i = config.outputFilename.lastIndexOf(".");
+	const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
+	return `${i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename}-radar${config.repos.length > 1 ? `-${repo.replaceAll("/", "-")}` : ""}${ext}`;
 }
 //#endregion
 //#region src/services/git.ts
@@ -1257,6 +1442,102 @@ function commitAndPush({ cwd, files, token }) {
 	]);
 }
 //#endregion
+//#region src/services/radar.ts
+const API_BASE = GITHUB_API_URL.replace(/\/+$/, "");
+/**
+* Maps a raw metric count to a 0–99 radar score using a base-10 log scale:
+* each ~10x growth adds ~33 points (1 → 3, 1e3 → 33, 1e6 → 66), capped at 99.
+* GitHub exposes no percentile API, so this is a relative intensity score
+* rather than a true percentile.
+*
+* 用十进制对数刻度把原始指标数量映射为 0–99 的雷达分数：每增长约 10 倍
+* 加约 33 分（1 → 3，1e3 → 33，1e6 → 66），封顶 99。GitHub 不提供百分位
+* API，因此这是相对的强度分数而非真实的百分位。
+*
+* @param count - Raw metric count / 原始指标数量
+* @returns A score in [0, 99] / [0, 99] 范围内的分数
+*/
+function percentileOf(count) {
+	if (!Number.isFinite(count) || count <= 0) return 0;
+	return Math.min(99, Math.round(Math.log10(count + 1) / 3 * 33));
+}
+/**
+* Counts the stars gained in the last `days` days from an ascending star
+* record series (the newest record is anchored at today).
+*
+* 从升序的 star 记录序列（最新一条锚定在今天）统计最近 `days` 天的新增 star。
+*
+* @param records - Ascending `{ date, stars }` series / 升序 `{ date, stars }` 序列
+* @param days - Lookback window in days, default 30 / 回看窗口（天），默认 30
+* @returns New stars in the window / 窗口内的新增 star 数
+*/
+function newStarsInLastDays(records, days = 30) {
+	if (records.length === 0) return 0;
+	const cutoffDate = formatDate(Date.now() - days * 864e5);
+	let base = 0;
+	for (const record of records) if (record.date <= cutoffDate) base = record.stars;
+	else break;
+	const last = records[records.length - 1];
+	return Math.max(0, last.stars - base);
+}
+/**
+* Approximates the total count of a paginated GitHub list endpoint from its
+* `Link` header: `lastPage * perPage`. Returns null when the header is missing
+* (a single page or an endpoint without paging info).
+*
+* 依据 `Link` 响应头近似分页 GitHub 列表端点的总数：`lastPage * perPage`。
+* 响应头缺失（单页或端点无分页信息）时返回 null。
+*
+* @param link - Raw `Link` header value / `Link` 响应头的原始值
+* @returns An estimated count, or null when unpaginated / 估计数量；无分页时返回 null
+*/
+function estimateTotal(link) {
+	const last = link ? parseLastPage(link) : null;
+	return last == null ? null : last * 100;
+}
+/**
+* Fetches the six radar metrics for a repository and maps them to 0–99 scores.
+*
+* 抓取仓库的六项雷达指标并映射为 0–99 分数。
+*
+* Metric sources (each a single API call): `/repos/{repo}` gives stars and
+* forks; contributors and commits are approximated from the pagination of
+* `per_page=1` list calls; closed issues come from the search API. `new_stars`
+* is derived from the already-fetched star records (no extra request).
+*
+* 指标来源（各一次 API 调用）：`/repos/{repo}` 提供 stars 与 forks；contributors
+* 与 commits 依据 `per_page=1` 列表调用的分页近似；issues_closed 来自搜索 API。
+* `new_stars` 从已抓取的 star 记录推导（无额外请求）。
+*
+* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+* @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
+* @param records - Ascending star records from getRepoStarRecords /
+*   getRepoStarRecords 返回的升序 star 记录
+* @returns The radar attributes with 0–99 scores / 0–99 分数的雷达属性
+* @throws {Error} When the repo lookup fails / 当仓库查询失败时抛出
+*/
+async function getRepoRadarAttributes(repo, token, records) {
+	const repoRes = await request(`${API_BASE}/repos/${repo}`, token);
+	if (!repoRes.ok) throw new Error(`Failed to get repo ${repo} info: HTTP ${repoRes.status}`);
+	const repoData = await repoRes.json();
+	const [contributorsRes, commitsRes, issuesRes] = await Promise.all([
+		request(`${API_BASE}/repos/${repo}/contributors?per_page=1`, token),
+		request(`${API_BASE}/repos/${repo}/commits?per_page=1`, token),
+		request(`${API_BASE}/search/issues?q=${encodeURIComponent(`repo:${repo} is:closed`)}&per_page=1`, token)
+	]);
+	const contributors = estimateTotal(contributorsRes.headers.get("link")) ?? 0;
+	const pushes = estimateTotal(commitsRes.headers.get("link")) ?? 0;
+	const issuesClosed = issuesRes.ok ? (await issuesRes.json()).total_count ?? 0 : 0;
+	return {
+		stars: percentileOf(repoData.stargazers_count ?? 0),
+		new_stars: percentileOf(newStarsInLastDays(records)),
+		pushes: percentileOf(pushes),
+		contributors: percentileOf(contributors),
+		issues_closed: percentileOf(issuesClosed),
+		forks: percentileOf(repoData.forks_count ?? 0)
+	};
+}
+//#endregion
 //#region src/index.ts
 /**
 * Runs the full action pipeline: parse → fetch → render → write → commit/push.
@@ -1300,14 +1581,24 @@ async function run() {
 			info(`wrote ${relative(workspace, pngPath)}`);
 		}
 	}
+	const chartPaths = chartFiles.flatMap(({ svgFile, pngFile }) => {
+		const files = [];
+		if (config.outputFormat !== "png") files.push(svgFile);
+		if (pngFile) files.push(pngFile);
+		return files.map((file) => relative(workspace, join(outDir, file)));
+	});
+	if (config.radar) for (const { repo, records } of datasets) {
+		const attributes = await getRepoRadarAttributes(repo, config.token, records);
+		const file = getRadarFileName(config, repo);
+		const filePath = join(outDir, file);
+		const svg = renderRadarSvg(attributes);
+		await writeFile(filePath, svg, "utf8");
+		info(`wrote ${relative(workspace, filePath)}`);
+		chartPaths.push(relative(workspace, filePath));
+	}
 	commitAndPush({
 		cwd: workspace,
-		files: chartFiles.flatMap(({ svgFile, pngFile }) => {
-			const files = [];
-			if (config.outputFormat !== "png") files.push(svgFile);
-			if (pngFile) files.push(pngFile);
-			return files.map((file) => relative(workspace, join(outDir, file)));
-		}),
+		files: chartPaths,
 		token: config.token
 	});
 	info("done");

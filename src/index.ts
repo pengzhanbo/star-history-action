@@ -2,12 +2,14 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { info, setFailed } from '@actions/core'
 import sharp from 'sharp'
+import { renderRadarSvg } from './charts/radar-svg.js'
 import { DEFAULT_MAX_REQUEST_AMOUNT } from './common/constants.js'
 import { renderStarHistorySvg } from './render.js'
 import { getRepoLogo, getRepoStarRecords, toBase64 } from './services/api.js'
-import { getChartFilePaths, parseInputs } from './services/config.js'
+import { getChartFilePaths, getRadarFileName, parseInputs } from './services/config.js'
 import { GITHUB_WORKSPACE } from './services/env.js'
 import { commitAndPush } from './services/git.js'
+import { getRepoRadarAttributes } from './services/radar.js'
 
 /**
  * Runs the full action pipeline: parse → fetch → render → write → commit/push.
@@ -80,6 +82,19 @@ async function run(): Promise<void> {
     }
     return files.map((file) => relative(workspace, join(outDir, file)))
   })
+
+  if (config.radar) {
+    for (const { repo, records } of datasets) {
+      const attributes = await getRepoRadarAttributes(repo, config.token, records)
+      const file = getRadarFileName(config, repo)
+      const filePath = join(outDir, file)
+      const svg = renderRadarSvg(attributes)
+      await writeFile(filePath, svg, 'utf8')
+      info(`wrote ${relative(workspace, filePath)}`)
+      chartPaths.push(relative(workspace, filePath))
+    }
+  }
+
   commitAndPush({ cwd: workspace, files: chartPaths, token: config.token })
   info('done')
 }

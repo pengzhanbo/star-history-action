@@ -154,6 +154,21 @@ beforeAll(async () => {
       return
     }
 
+    // Radar chart metrics: paginated list endpoints advertise their size via the
+    // Link header; the search endpoint reports a total_count.
+    const listMatch = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)\/(contributors|commits)$/)
+    if (listMatch) {
+      // ~300 contributors, ~200 pushes: last page * per_page (100).
+      const last = listMatch[3] === 'contributors' ? 3 : 2
+      res.setHeader('link', `<${serverUrl}${url.pathname}?page=${last}&per_page=1>; rel="last"`)
+      res.end('[]')
+      return
+    }
+    if (url.pathname === '/search/issues') {
+      res.end(JSON.stringify({ total_count: 120 }))
+      return
+    }
+
     const userMatch = url.pathname.match(/^\/users\/([^/]+)$/)
     if (userMatch) {
       res.end(JSON.stringify({ avatar_url: `${serverUrl}${url.pathname}/avatar.png` }))
@@ -275,5 +290,51 @@ describe('action end-to-end (mock GitHub API)', () => {
     const png = readFileSync(join(workspace, 'assets/star-history.png'))
     // PNG magic bytes; proves sharp rasterized the chart rather than copying bytes.
     expect(png.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+  })
+
+  it('writes a per-repo radar SVG when radar is enabled', async () => {
+    const result = await runAction({
+      INPUT_RADAR: 'true',
+      INPUT_THEME: 'light',
+    })
+    expect(result.stderr).toBe('')
+    expectSuccess(result)
+    expect(result.stdout).toContain('wrote assets/star-history.svg')
+    expect(result.stdout).toContain('wrote assets/star-history-radar.svg')
+
+    const radar = readFileSync(join(workspace, 'assets/star-history-radar.svg'), 'utf8')
+    expect(radar).toContain('<svg')
+    expect(radar).toContain('font-family:xkcd,cursive')
+    // all six axis labels are present
+    for (const label of [
+      'Stars',
+      'New Stars',
+      'Issues Closed',
+      'Contributors',
+      'Pushes',
+      'Forks',
+    ]) {
+      expect(radar).toContain(`>${label}</text>`)
+    }
+
+    // The radar SVG is part of the chart commit.
+    expect(git(workspace, 'log', '-1', '--format=%s').trim()).toBe(
+      'chore: update star history chart',
+    )
+  })
+
+  it('suffixes the repo into the radar file name for multi-repo runs', async () => {
+    const result = await runAction({
+      INPUT_RADAR: 'true',
+      INPUT_REPO: 'owner/repo, other/repo',
+      INPUT_THEME: 'light',
+    })
+    expect(result.stderr).toBe('')
+    expectSuccess(result)
+    expect(result.stdout).toContain('wrote assets/star-history-radar-owner-repo.svg')
+    expect(result.stdout).toContain('wrote assets/star-history-radar-other-repo.svg')
+
+    expect(existsSync(join(workspace, 'assets/star-history-radar-owner-repo.svg'))).toBe(true)
+    expect(existsSync(join(workspace, 'assets/star-history-radar-other-repo.svg'))).toBe(true)
   })
 })

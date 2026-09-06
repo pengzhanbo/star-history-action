@@ -44,6 +44,7 @@ jobs:
 | `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                                                   |
 | `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                                                |
 | `output-format`    | No       | `svg`                      | Output file format: `svg` (default), `png` (rasterized from the SVG), or `both`.                                                                    |
+| `radar`            | No       | `false`                    | Also render a per-repo radar SVG chart of repo health metrics (stars, new stars, pushes, contributors, issues closed, forks), each scored 0–99.     |
 
 <!-- markdownlint-enable MD060 -->
 
@@ -70,6 +71,14 @@ jobs:
   sharp (the `.png` name mirrors the `.svg` one, e.g. `star-history-light.png`).
   Note: the rasterizer uses a system fallback font, so the PNG is a raster
   preview rather than a pixel-perfect copy of the SVG.
+- **Radar chart**: with `radar: true`, a per-repo radar SVG is written alongside
+  the history chart — `<stem>-radar.svg` for a single repo, or
+  `<stem>-radar-<owner>-<repo>.svg` when comparing multiple repos. Six metrics
+  (stars, new stars over 30 days, pushes, contributors, issues closed, forks)
+  are fetched from the GitHub API and mapped to 0–99 scores on a log scale, so
+  the radar compares metric intensity rather than raw counts. Radar charts are
+  always SVG (no PNG rasterization) and are included in the same commit as the
+  history chart.
 
 ## Embedding the chart in your README
 
