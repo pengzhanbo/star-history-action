@@ -1,5 +1,4 @@
 {
-  "updatedAt": "2026-09-06T09:13:18.910Z",
   "repos": [
     {
       "repo": "pengzhanbo/star-history-action",
@@ -12,15 +11,7 @@
           "date": "2026-09-06",
           "stars": 1
         }
-      ],
-      "radar": {
-        "stars": 3,
-        "new_stars": 3,
-        "pushes": 43,
-        "contributors": 25,
-        "issues_closed": 0,
-        "forks": 0
-      }
+      ]
     }
   ]
 }
