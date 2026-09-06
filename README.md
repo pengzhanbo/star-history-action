@@ -70,7 +70,9 @@ jobs:
   With `output-format: png` or `both`, the chart is rasterized to PNG(s) via
   resvg (the `.png` name mirrors the `.svg` one, e.g. `star-history-light.png`).
   resvg loads the xkcd font from the action's `assets/xkcd.ttf`, so the PNG
-  text style matches the SVG instead of falling back to a system font.
+  text style matches the SVG instead of falling back to a system font; the
+  result is then palette-quantized via sharp for a ~65% smaller file with
+  pixel-identical output.
 - **Radar chart**: with `radar: true`, a per-repo radar SVG is written alongside
   the history chart, one file per theme like the history chart itself — for a
   single repo/theme that's `<stem>-radar.svg`; multiple repos append

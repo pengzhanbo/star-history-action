@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { info, setFailed } from '@actions/core'
 import { Resvg } from '@resvg/resvg-js'
+import sharp from 'sharp'
 import { renderRadarSvg } from './charts/radar-svg.js'
 import { DEFAULT_MAX_REQUEST_AMOUNT } from './common/constants.js'
 import { renderStarHistorySvg } from './render.js'
@@ -28,9 +29,10 @@ function svgBackground(svg: string): string | undefined {
 }
 
 /**
- * Rasterizes a chart SVG to PNG via resvg.
+ * Rasterizes a chart SVG to PNG via resvg, then re-encodes the result through
+ * sharp's palette quantization.
  *
- * 通过 resvg 将图表 SVG 栅格化为 PNG。
+ * 通过 resvg 将图表 SVG 栅格化为 PNG，再经 sharp 调色板量化二次编码。
  *
  * Unlike librsvg (sharp's engine), resvg loads the xkcd font explicitly from
  * `assets/xkcd.ttf`, so the PNG text style matches the SVG instead of falling
@@ -44,12 +46,23 @@ function svgBackground(svg: string): string | undefined {
  * `working-directory: ${{ github.action_path }}` 运行，本地与 e2e 同样在
  * 仓库根运行，与 `font-subset.ts` 一致。
  *
+ * Chart color palettes stay far below 256 entries (background, grid, a few
+ * lines, and antialiased text), so `palette: true` maps every pixel to the
+ * palette losslessly while shrinking the file ~65% — pixel-identical output.
+ * If a chart ever exceeds 256 colors the quantization becomes slightly lossy
+ * instead of failing.
+ *
+ * 图表调色板远少于 256 种颜色（背景、网格、少数折线以及抗锯齿文字），因此
+ * `palette: true` 可无损地将每个像素映射到调色板，同时将文件体积缩减约 65%，
+ * 输出与原始渲染逐像素一致。若未来图表颜色超过 256 种，量化将退化为轻微
+ * 有损，而不会报错。
+ *
  * @param svg - Chart SVG string / 图表 SVG 字符串
  * @param width - Output width in px; height follows the SVG aspect ratio /
  *   输出宽度（像素）；高度按 SVG 宽高比缩放
  * @returns PNG bytes / PNG 字节
  */
-function rasterizeSvg(svg: string, width: number): Buffer {
+async function rasterizeSvg(svg: string, width: number): Promise<Buffer> {
   const background = svgBackground(svg)
   const resvg = new Resvg(svg, {
     fitTo: { mode: 'width', value: width },
@@ -60,7 +73,7 @@ function rasterizeSvg(svg: string, width: number): Buffer {
     },
     ...(background ? { background } : {}),
   })
-  return resvg.render().asPng()
+  return sharp(resvg.render().asPng()).png({ compressionLevel: 9, palette: true }).toBuffer()
 }
 
 /**
@@ -118,7 +131,7 @@ async function run(): Promise<void> {
       // the PNG text style matches the SVG (librsvg ignores the inlined
       // @font-face and falls back to a system font).
       const pngPath = join(outDir, pngFile)
-      const png = rasterizeSvg(svg, config.svgWidth)
+      const png = await rasterizeSvg(svg, config.svgWidth)
       await writeFile(pngPath, png)
       info(`wrote ${relative(workspace, pngPath)}`)
     }
