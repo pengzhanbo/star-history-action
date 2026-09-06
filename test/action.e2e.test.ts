@@ -277,21 +277,29 @@ describe('action end-to-end (mock GitHub API)', () => {
     expect(svg).toContain('background:#fff')
   })
 
-  it('writes a PNG alongside the SVG when output-format is both', async () => {
+  it('writes PNGs alongside the SVGs when output-format is both', async () => {
     const result = await runAction({
       'INPUT_THEME': 'light',
       // getInput('output-format') reads INPUT_OUTPUT-FORMAT (hyphen, like action.yaml).
       'INPUT_OUTPUT-FORMAT': 'both',
+      'INPUT_RADAR': 'true',
     })
     expectSuccess(result)
     expect(result.stdout).toContain('wrote assets/star-history.svg')
     expect(result.stdout).toContain('wrote assets/star-history.png')
+    expect(result.stdout).toContain('wrote assets/star-history-radar.svg')
+    expect(result.stdout).toContain('wrote assets/star-history-radar.png')
 
     const png = readFileSync(join(workspace, 'assets/star-history.png'))
     // PNG magic bytes; proves a real rasterization happened rather than a byte copy.
     expect(png.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
     // PNG IHDR: width 960 (0x3c0) then height 640 (0x280), little-endian halves.
     expect(png.subarray(16, 24).toString('hex')).toBe('000003c000000280')
+
+    // Radar PNG rasterizes at its native 400×400 size (0x190 × 0x190).
+    const radarPng = readFileSync(join(workspace, 'assets/star-history-radar.png'))
+    expect(radarPng.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+    expect(radarPng.subarray(16, 24).toString('hex')).toBe('0000019000000190')
   })
 
   it('writes per-theme radar SVGs when radar is enabled', async () => {

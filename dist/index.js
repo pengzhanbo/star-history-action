@@ -318,12 +318,17 @@ function svgBackground(svg) {
 * back to a system font. The font path resolves from the action repo root —
 * the composite action runs with `working-directory: ${{ github.action_path }}`
 * and both local and e2e runs use the repo root, mirroring `font-subset.ts`.
+* The output size follows the SVG's own `width`/`height` attributes, so the
+* history chart (960×640) and radar chart (400×400) each rasterize at their
+* native resolution.
 *
 * 与 librsvg（sharp 的底层引擎）不同，resvg 显式从 `assets/xkcd.ttf` 加载
 * xkcd 字体，因此 PNG 的文字样式与 SVG 一致，而不会回退到系统字体。字体
 * 路径基于 action 仓库根解析——composite action 以
 * `working-directory: ${{ github.action_path }}` 运行，本地与 e2e 同样在
-* 仓库根运行，与 `font-subset.ts` 一致。
+* 仓库根运行，与 `font-subset.ts` 一致。输出尺寸跟随 SVG 自身的
+* `width`/`height` 属性，因此历史图（960×640）与雷达图（400×400）都按各自
+* 原生分辨率栅格化。
 *
 * Chart color palettes stay far below 256 entries (background, grid, a few
 * lines, and antialiased text), so `palette: true` maps every pixel to the
@@ -337,17 +342,11 @@ function svgBackground(svg) {
 * 有损，而不会报错。
 *
 * @param svg - Chart SVG string / 图表 SVG 字符串
-* @param width - Output width in px; height follows the SVG aspect ratio /
-*   输出宽度（像素）；高度按 SVG 宽高比缩放
 * @returns PNG bytes / PNG 字节
 */
-async function rasterizeSvg(svg, width) {
+async function rasterizeSvg(svg) {
 	const background = svgBackground(svg);
 	const resvg = new Resvg(svg, {
-		fitTo: {
-			mode: "width",
-			value: width
-		},
 		font: {
 			fontFiles: [resolve("assets/xkcd.ttf")],
 			loadSystemFonts: false,
@@ -1493,6 +1492,33 @@ function getRadarFileName(config, repo, theme) {
 	const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
 	return `${i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename}-radar${config.repos.length > 1 ? `-${repo.replaceAll("/", "-")}` : ""}${theme && config.themes.length > 1 ? `-${theme}` : ""}${ext}`;
 }
+/**
+* Maps the requested themes to concrete radar chart file names for one repo,
+* reusing the same naming rules as {@link getChartFilePaths}: theme suffixes
+* for multi-theme runs, and `.png` derivation for `png`/`both` output formats.
+*
+* 将请求的主题映射为某个仓库的雷达图具体文件名，复用
+* {@link getChartFilePaths} 的命名规则：多主题运行追加主题后缀，`png`/`both`
+* 输出格式派生 `.png` 文件名。
+*
+* @param config - Parsed action inputs / 解析后的动作输入
+* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+* @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
+*   modes, `.png`) radar file names / 每个主题一个条目，包含派生的 `.svg`
+*   （以及 `png`/`both` 模式下的 `.png`）雷达图文件名
+* @example
+* getRadarFilePaths({ ...themes: ['light', 'dark'], outputFormat: 'both', repos: ['a/b'] }, 'a/b')
+* // [
+* //   { theme: 'light', svgFile: 'star-history-radar-light.svg', pngFile: 'star-history-radar-light.png' },
+* //   { theme: 'dark', svgFile: 'star-history-radar-dark.svg', pngFile: 'star-history-radar-dark.png' },
+* // ]
+*/
+function getRadarFilePaths(config, repo) {
+	return getChartFilePaths({
+		...config,
+		outputFilename: getRadarFileName(config, repo)
+	});
+}
 //#endregion
 //#region src/services/git.ts
 /**
@@ -1728,19 +1754,24 @@ async function run() {
 			outDir,
 			workspace,
 			file: pngFile,
-			content: await rasterizeSvg(svg, config.svgWidth)
+			content: await rasterizeSvg(svg)
 		}));
 	}
 	if (config.radar) for (const { repo, records } of datasets) {
 		const attributes = await getRepoRadarAttributes(repo, config.token, records);
-		for (const theme of config.themes) {
-			const file = getRadarFileName(config, repo, theme);
+		for (const { theme, svgFile, pngFile } of getRadarFilePaths(config, repo)) {
 			const svg = await renderRadarSvg(attributes, { theme });
-			chartPaths.push(await writeOutput({
+			if (config.outputFormat !== "png") chartPaths.push(await writeOutput({
 				outDir,
 				workspace,
-				file,
+				file: svgFile,
 				content: svg
+			}));
+			if (pngFile) chartPaths.push(await writeOutput({
+				outDir,
+				workspace,
+				file: pngFile,
+				content: await rasterizeSvg(svg)
 			}));
 		}
 	}

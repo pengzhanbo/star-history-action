@@ -1,6 +1,6 @@
 import type { ActionConfig } from '../src/services/config.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getChartFilePaths, getRadarFileName } from '../src/services/config.js'
+import { getChartFilePaths, getRadarFilePaths, getRadarFileName } from '../src/services/config.js'
 
 // env.js reads process.env at module evaluation, so parseInputs scenarios
 // re-import the module after stubbing env vars.
@@ -299,5 +299,61 @@ describe('getRadarFileName', () => {
     const both: ActionConfig = { ...baseConfig, repos: ['a/b', 'c/d'], themes: ['light', 'dark'] }
 
     expect(getRadarFileName(both, 'a/b', 'dark')).toBe('star-history-radar-a-b-dark.svg')
+  })
+})
+
+describe('getRadarFilePaths', () => {
+  const baseConfig: ActionConfig = {
+    repos: ['owner/repo'],
+    token: 't',
+    outputDirectory: 'assets',
+    outputFilename: 'star-history.svg',
+    outputFormat: 'svg',
+    svgWidth: 960,
+    themes: ['light'],
+    radar: true,
+  }
+
+  it('maps a single theme to the plain radar SVG name', () => {
+    expect(getRadarFilePaths(baseConfig, 'owner/repo')).toEqual([
+      { theme: 'light', svgFile: 'star-history-radar.svg' },
+    ])
+  })
+
+  it('derives -light/-dark variants for multi-theme runs', () => {
+    const both: ActionConfig = { ...baseConfig, themes: ['light', 'dark'] }
+
+    expect(getRadarFilePaths(both, 'owner/repo')).toEqual([
+      { theme: 'light', svgFile: 'star-history-radar-light.svg' },
+      { theme: 'dark', svgFile: 'star-history-radar-dark.svg' },
+    ])
+  })
+
+  it('suffixes the repo for multi-repo runs', () => {
+    const multi: ActionConfig = { ...baseConfig, repos: ['a/b', 'c/d'] }
+
+    expect(getRadarFilePaths(multi, 'a/b')).toEqual([
+      { theme: 'light', svgFile: 'star-history-radar-a-b.svg' },
+    ])
+    expect(getRadarFilePaths(multi, 'c/d')).toEqual([
+      { theme: 'light', svgFile: 'star-history-radar-c-d.svg' },
+    ])
+  })
+
+  it('adds a .png twin for png/both output formats', () => {
+    const both: ActionConfig = { ...baseConfig, outputFormat: 'both', themes: ['light', 'dark'] }
+
+    expect(getRadarFilePaths(both, 'owner/repo')).toEqual([
+      {
+        theme: 'light',
+        svgFile: 'star-history-radar-light.svg',
+        pngFile: 'star-history-radar-light.png',
+      },
+      {
+        theme: 'dark',
+        svgFile: 'star-history-radar-dark.svg',
+        pngFile: 'star-history-radar-dark.png',
+      },
+    ])
   })
 })

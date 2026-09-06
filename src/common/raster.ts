@@ -29,12 +29,17 @@ function svgBackground(svg: string): string | undefined {
  * back to a system font. The font path resolves from the action repo root —
  * the composite action runs with `working-directory: ${{ github.action_path }}`
  * and both local and e2e runs use the repo root, mirroring `font-subset.ts`.
+ * The output size follows the SVG's own `width`/`height` attributes, so the
+ * history chart (960×640) and radar chart (400×400) each rasterize at their
+ * native resolution.
  *
  * 与 librsvg（sharp 的底层引擎）不同，resvg 显式从 `assets/xkcd.ttf` 加载
  * xkcd 字体，因此 PNG 的文字样式与 SVG 一致，而不会回退到系统字体。字体
  * 路径基于 action 仓库根解析——composite action 以
  * `working-directory: ${{ github.action_path }}` 运行，本地与 e2e 同样在
- * 仓库根运行，与 `font-subset.ts` 一致。
+ * 仓库根运行，与 `font-subset.ts` 一致。输出尺寸跟随 SVG 自身的
+ * `width`/`height` 属性，因此历史图（960×640）与雷达图（400×400）都按各自
+ * 原生分辨率栅格化。
  *
  * Chart color palettes stay far below 256 entries (background, grid, a few
  * lines, and antialiased text), so `palette: true` maps every pixel to the
@@ -48,14 +53,11 @@ function svgBackground(svg: string): string | undefined {
  * 有损，而不会报错。
  *
  * @param svg - Chart SVG string / 图表 SVG 字符串
- * @param width - Output width in px; height follows the SVG aspect ratio /
- *   输出宽度（像素）；高度按 SVG 宽高比缩放
  * @returns PNG bytes / PNG 字节
  */
-export async function rasterizeSvg(svg: string, width: number): Promise<Buffer> {
+export async function rasterizeSvg(svg: string): Promise<Buffer> {
   const background = svgBackground(svg)
   const resvg = new Resvg(svg, {
-    fitTo: { mode: 'width', value: width },
     font: {
       fontFiles: [resolve('assets/xkcd.ttf')],
       loadSystemFonts: false,

@@ -286,3 +286,28 @@ export function getRadarFileName(config: ActionConfig, repo: string, theme?: Cha
   const themePart = theme && config.themes.length > 1 ? `-${theme}` : ''
   return `${stem}-radar${repoPart}${themePart}${ext}`
 }
+
+/**
+ * Maps the requested themes to concrete radar chart file names for one repo,
+ * reusing the same naming rules as {@link getChartFilePaths}: theme suffixes
+ * for multi-theme runs, and `.png` derivation for `png`/`both` output formats.
+ *
+ * 将请求的主题映射为某个仓库的雷达图具体文件名，复用
+ * {@link getChartFilePaths} 的命名规则：多主题运行追加主题后缀，`png`/`both`
+ * 输出格式派生 `.png` 文件名。
+ *
+ * @param config - Parsed action inputs / 解析后的动作输入
+ * @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+ * @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
+ *   modes, `.png`) radar file names / 每个主题一个条目，包含派生的 `.svg`
+ *   （以及 `png`/`both` 模式下的 `.png`）雷达图文件名
+ * @example
+ * getRadarFilePaths({ ...themes: ['light', 'dark'], outputFormat: 'both', repos: ['a/b'] }, 'a/b')
+ * // [
+ * //   { theme: 'light', svgFile: 'star-history-radar-light.svg', pngFile: 'star-history-radar-light.png' },
+ * //   { theme: 'dark', svgFile: 'star-history-radar-dark.svg', pngFile: 'star-history-radar-dark.png' },
+ * // ]
+ */
+export function getRadarFilePaths(config: ActionConfig, repo: string): ChartFileOutput[] {
+  return getChartFilePaths({ ...config, outputFilename: getRadarFileName(config, repo) })
+}

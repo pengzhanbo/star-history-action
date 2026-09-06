@@ -81,8 +81,10 @@ jobs:
   over 30 days, pushes, contributors, issues closed, forks) are fetched from the
   GitHub API and mapped to 0–99 scores on a log scale, so the radar compares
   metric intensity rather than raw counts. The xkcd font is inlined as a woff2
-  subset (same as the history chart). Radar charts are always SVG (no PNG
-  rasterization) and are included in the same commit as the history chart.
+  subset (same as the history chart). Radar output follows the same
+  `output-format` rules as the history chart: with `png`/`both` a PNG twin is
+  rasterized per theme/repo at the radar's native 400×400 size, and both the
+  SVGs and PNGs are included in the same commit as the history chart.
 
 ## Embedding the chart in your README
 

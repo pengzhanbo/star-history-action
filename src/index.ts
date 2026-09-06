@@ -7,7 +7,7 @@ import { writeOutput } from './common/output.js'
 import { rasterizeSvg } from './common/raster.js'
 import { renderStarHistorySvg } from './render.js'
 import { getRepoLogo, getRepoStarRecords, toBase64 } from './services/api.js'
-import { getChartFilePaths, getRadarFileName, parseInputs } from './services/config.js'
+import { getChartFilePaths, getRadarFilePaths, parseInputs } from './services/config.js'
 import { GITHUB_WORKSPACE } from './services/env.js'
 import { commitAndPush } from './services/git.js'
 import { getRepoRadarAttributes } from './services/radar.js'
@@ -62,12 +62,7 @@ async function run(): Promise<void> {
     }
     if (pngFile) {
       chartPaths.push(
-        await writeOutput({
-          outDir,
-          workspace,
-          file: pngFile,
-          content: await rasterizeSvg(svg, config.svgWidth),
-        }),
+        await writeOutput({ outDir, workspace, file: pngFile, content: await rasterizeSvg(svg) }),
       )
     }
   }
@@ -75,10 +70,25 @@ async function run(): Promise<void> {
   if (config.radar) {
     for (const { repo, records } of datasets) {
       const attributes = await getRepoRadarAttributes(repo, config.token, records)
-      for (const theme of config.themes) {
-        const file = getRadarFileName(config, repo, theme)
+      // Radar follows the same output-format rules as the history chart: `svg`
+      // writes SVGs only, `png` only PNGs, `both` both — named per theme/repo.
+      // 雷达图遵循与历史图相同的 output-format 规则：`svg` 仅写 SVG，`png`
+      // 仅写 PNG，`both` 两者都写——按主题/仓库分别命名。
+      for (const { theme, svgFile, pngFile } of getRadarFilePaths(config, repo)) {
         const svg = await renderRadarSvg(attributes, { theme })
-        chartPaths.push(await writeOutput({ outDir, workspace, file, content: svg }))
+        if (config.outputFormat !== 'png') {
+          chartPaths.push(await writeOutput({ outDir, workspace, file: svgFile, content: svg }))
+        }
+        if (pngFile) {
+          chartPaths.push(
+            await writeOutput({
+              outDir,
+              workspace,
+              file: pngFile,
+              content: await rasterizeSvg(svg),
+            }),
+          )
+        }
       }
     }
   }
