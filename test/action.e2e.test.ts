@@ -261,4 +261,19 @@ describe('action end-to-end (mock GitHub API)', () => {
     expect(svg).toContain('other/repo')
     expect(svg).toContain('background:#fff')
   })
+
+  it('writes a PNG alongside the SVG when output-format is both', async () => {
+    const result = await runAction({
+      'INPUT_THEME': 'light',
+      // getInput('output-format') reads INPUT_OUTPUT-FORMAT (hyphen, like action.yaml).
+      'INPUT_OUTPUT-FORMAT': 'both',
+    })
+    expectSuccess(result)
+    expect(result.stdout).toContain('wrote assets/star-history.svg')
+    expect(result.stdout).toContain('wrote assets/star-history.png')
+
+    const png = readFileSync(join(workspace, 'assets/star-history.png'))
+    // PNG magic bytes; proves sharp rasterized the chart rather than copying bytes.
+    expect(png.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+  })
 })

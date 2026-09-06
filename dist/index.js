@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getInput, info, setFailed } from "@actions/core";
+import sharp from "sharp";
 import { JSDOM } from "jsdom";
 import { optimize } from "svgo";
 import { isInteger, promiseParallel, range, uniq, withTimeout } from "@pengzhanbo/utils";
@@ -14,7 +15,6 @@ import { axisBottom, axisLeft } from "d3-axis";
 import duration from "dayjs/plugin/duration.js";
 import relativeTime from "dayjs/plugin/relativeTime.js";
 import { setTimeout } from "node:timers/promises";
-import sharp from "sharp";
 import { execFileSync, spawnSync } from "node:child_process";
 //#region src/common/constants.ts
 const REQUEST_TIMEOUT_MS = 15e3;
@@ -1037,6 +1037,16 @@ async function toBase64(url) {
 */
 const THEMES = ["light", "dark"];
 /**
+* Output formats the action can write.
+*
+* 动作可输出的文件格式。
+*/
+const OUTPUT_FORMATS = [
+	"svg",
+	"png",
+	"both"
+];
+/**
 * Type guard narrowing a string to a known chart theme.
 *
 * 将字符串收窄为已知图表主题的类型守卫。
@@ -1046,6 +1056,17 @@ const THEMES = ["light", "dark"];
 */
 function isTheme(value) {
 	return THEMES.includes(value);
+}
+/**
+* Type guard narrowing a string to a known output format.
+*
+* 将字符串收窄为已知输出格式的类型守卫。
+*
+* @param value - Format string to validate / 待校验的格式字符串
+* @returns True when the value is `svg`, `png`, or `both` / 当值为 `svg`、`png` 或 `both` 时为真
+*/
+function isOutputFormat(value) {
+	return OUTPUT_FORMATS.includes(value);
 }
 /**
 * Reads and validates all action inputs from the runner environment.
@@ -1074,6 +1095,9 @@ function parseInputs() {
 	const outputFilename = getInput("output-filename") || "star-history.svg";
 	if (outputFilename.length === 0 || outputFilename.includes("/") || outputFilename.includes("\\")) throw new Error(`output-filename must be a file name without path separators, got "${outputFilename}"`);
 	if (!/\.svg$/i.test(outputFilename)) throw new Error(`output-filename must end with .svg, got "${outputFilename}"`);
+	const rawFormat = getInput("output-format") || "svg";
+	const outputFormat = rawFormat.trim().toLowerCase();
+	if (!isOutputFormat(outputFormat)) throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, or both`);
 	const rawWidth = getInput("svg-width") || "960";
 	const svgWidth = Number(rawWidth);
 	if (!Number.isInteger(svgWidth) || svgWidth < 1) throw new Error(`svg-width must be a positive integer, got "${rawWidth}"`);
@@ -1091,6 +1115,7 @@ function parseInputs() {
 		token,
 		outputDirectory,
 		outputFilename,
+		outputFormat,
 		svgWidth,
 		themes
 	};
@@ -1101,29 +1126,38 @@ function parseInputs() {
 * 将请求的主题映射为具体的图表文件名。
 *
 * @param config - Parsed action inputs / 解析后的动作输入
-* @returns One entry per theme: single-theme runs keep the input filename;
+* @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
+*   modes, `.png`) file names: single-theme runs keep the input filename;
 *   multi-theme runs derive `-light`/`-dark` variants /
-*   每个主题一个条目：单主题运行保留输入文件名；多主题运行派生
-*   `-light`/`-dark` 变体
+*   每个主题一个条目，包含派生的 `.svg`（以及 `png`/`both` 模式下的 `.png`）
+*   文件名：单主题运行保留输入文件名；多主题运行派生 `-light`/`-dark` 变体
 * @example
 * getChartFilePaths({ ...themes: ['light', 'dark'], outputFilename: 'chart.svg' })
-* // [{ theme: 'light', file: 'chart-light.svg' }, { theme: 'dark', file: 'chart-dark.svg' }]
+* // [{ theme: 'light', svgFile: 'chart-light.svg' }, { theme: 'dark', svgFile: 'chart-dark.svg' }]
 */
 function getChartFilePaths(config) {
-	if (config.themes.length === 1) return [{
+	return (config.themes.length === 1 ? [{
 		theme: config.themes[0],
-		file: config.outputFilename
-	}];
-	const i = config.outputFilename.lastIndexOf(".");
-	const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
-	const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename;
-	return [{
-		theme: "light",
-		file: `${stem}-light${ext}`
-	}, {
-		theme: "dark",
-		file: `${stem}-dark${ext}`
-	}];
+		svgFile: config.outputFilename
+	}] : (() => {
+		const i = config.outputFilename.lastIndexOf(".");
+		const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
+		const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename;
+		return [{
+			theme: "light",
+			svgFile: `${stem}-light${ext}`
+		}, {
+			theme: "dark",
+			svgFile: `${stem}-dark${ext}`
+		}];
+	})()).map(({ theme, svgFile }) => {
+		const output = {
+			theme,
+			svgFile
+		};
+		if (config.outputFormat !== "svg") output.pngFile = svgFile.replace(/\.svg$/i, ".png");
+		return output;
+	});
 }
 //#endregion
 //#region src/services/git.ts
@@ -1248,19 +1282,32 @@ async function run() {
 	})));
 	await mkdir(outDir, { recursive: true });
 	const chartFiles = getChartFilePaths(config);
-	for (const { theme, file } of chartFiles) {
+	for (const { theme, svgFile, pngFile } of chartFiles) {
 		const svg = await renderStarHistorySvg({
 			datasets,
 			theme,
 			width: config.svgWidth
 		});
-		const filePath = join(outDir, file);
-		await writeFile(filePath, svg, "utf8");
-		info(`wrote ${relative(workspace, filePath)}`);
+		if (config.outputFormat !== "png") {
+			const svgPath = join(outDir, svgFile);
+			await writeFile(svgPath, svg, "utf8");
+			info(`wrote ${relative(workspace, svgPath)}`);
+		}
+		if (pngFile) {
+			const pngPath = join(outDir, pngFile);
+			const png = await sharp(Buffer.from(svg)).png().toBuffer();
+			await writeFile(pngPath, png);
+			info(`wrote ${relative(workspace, pngPath)}`);
+		}
 	}
 	commitAndPush({
 		cwd: workspace,
-		files: chartFiles.map(({ file }) => relative(workspace, join(outDir, file))),
+		files: chartFiles.flatMap(({ svgFile, pngFile }) => {
+			const files = [];
+			if (config.outputFormat !== "png") files.push(svgFile);
+			if (pngFile) files.push(pngFile);
+			return files.map((file) => relative(workspace, join(outDir, file)));
+		}),
 		token: config.token
 	});
 	info("done");

@@ -34,6 +34,7 @@ describe('parseInputs', () => {
       token: 't0k3n',
       outputDirectory: 'assets',
       outputFilename: 'star-history.svg',
+      outputFormat: 'svg',
       svgWidth: 960,
       themes: ['light'],
     })
@@ -153,6 +154,23 @@ describe('parseInputs', () => {
 
     expect(() => parseInputs()).toThrow('theme "blue" is invalid')
   })
+
+  it.each(['png', 'both', 'PNG', ' Both '])(
+    'accepts output-format %s (lowercased and trimmed)',
+    async (format) => {
+      stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': format })
+      const parseInputs = await loadParseInputs()
+
+      expect(parseInputs().outputFormat).toBe(format.trim().toLowerCase())
+    },
+  )
+
+  it('throws on an unknown output-format', async () => {
+    stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': 'webp' })
+    const parseInputs = await loadParseInputs()
+
+    expect(() => parseInputs()).toThrow('output-format "webp" is invalid')
+  })
 })
 
 describe('getChartFilePaths', () => {
@@ -161,20 +179,21 @@ describe('getChartFilePaths', () => {
     token: 't',
     outputDirectory: 'assets',
     outputFilename: 'star-history.svg',
+    outputFormat: 'svg',
     svgWidth: 960,
     themes: ['light'],
   }
 
   it('uses the output-filename as-is for a single theme', () => {
     expect(getChartFilePaths({ ...baseConfig, themes: ['dark'] })).toEqual([
-      { theme: 'dark', file: 'star-history.svg' },
+      { theme: 'dark', svgFile: 'star-history.svg' },
     ])
   })
 
   it('suffixes the stem with the theme when rendering both themes', () => {
     expect(getChartFilePaths({ ...baseConfig, themes: ['light', 'dark'] })).toEqual([
-      { theme: 'light', file: 'star-history-light.svg' },
-      { theme: 'dark', file: 'star-history-dark.svg' },
+      { theme: 'light', svgFile: 'star-history-light.svg' },
+      { theme: 'dark', svgFile: 'star-history-dark.svg' },
     ])
   })
 
@@ -186,8 +205,27 @@ describe('getChartFilePaths', () => {
         themes: ['light', 'dark'],
       }),
     ).toEqual([
-      { theme: 'light', file: 'chart-light.SVG' },
-      { theme: 'dark', file: 'chart-dark.SVG' },
+      { theme: 'light', svgFile: 'chart-light.SVG' },
+      { theme: 'dark', svgFile: 'chart-dark.SVG' },
+    ])
+  })
+
+  it('derives a .png file for output-format png', () => {
+    expect(getChartFilePaths({ ...baseConfig, outputFormat: 'png' })).toEqual([
+      { theme: 'light', svgFile: 'star-history.svg', pngFile: 'star-history.png' },
+    ])
+  })
+
+  it('derives per-theme .png files for output-format both', () => {
+    expect(
+      getChartFilePaths({
+        ...baseConfig,
+        outputFormat: 'both',
+        themes: ['light', 'dark'],
+      }),
+    ).toEqual([
+      { theme: 'light', svgFile: 'star-history-light.svg', pngFile: 'star-history-light.png' },
+      { theme: 'dark', svgFile: 'star-history-dark.svg', pngFile: 'star-history-dark.png' },
     ])
   })
 })

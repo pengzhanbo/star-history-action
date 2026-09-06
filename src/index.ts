@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { info, setFailed } from '@actions/core'
+import sharp from 'sharp'
 import { DEFAULT_MAX_REQUEST_AMOUNT } from './common/constants.js'
 import { renderStarHistorySvg } from './render.js'
 import { getRepoLogo, getRepoStarRecords, toBase64 } from './services/api.js'
@@ -47,18 +48,38 @@ async function run(): Promise<void> {
   await mkdir(outDir, { recursive: true })
 
   const chartFiles = getChartFilePaths(config)
-  for (const { theme, file } of chartFiles) {
+  for (const { theme, svgFile, pngFile } of chartFiles) {
     const svg = await renderStarHistorySvg({
       datasets,
       theme,
       width: config.svgWidth,
     })
-    const filePath = join(outDir, file)
-    await writeFile(filePath, svg, 'utf8')
-    info(`wrote ${relative(workspace, filePath)}`)
+    if (config.outputFormat !== 'png') {
+      const svgPath = join(outDir, svgFile)
+      await writeFile(svgPath, svg, 'utf8')
+      info(`wrote ${relative(workspace, svgPath)}`)
+    }
+    if (pngFile) {
+      // Rasterize via sharp; the embedded xkcd font falls back to a system
+      // font under librsvg, so the PNG is a raster preview, not a pixel-perfect
+      // copy of the SVG.
+      const pngPath = join(outDir, pngFile)
+      const png = await sharp(Buffer.from(svg)).png().toBuffer()
+      await writeFile(pngPath, png)
+      info(`wrote ${relative(workspace, pngPath)}`)
+    }
   }
 
-  const chartPaths = chartFiles.map(({ file }) => relative(workspace, join(outDir, file)))
+  const chartPaths = chartFiles.flatMap(({ svgFile, pngFile }) => {
+    const files: string[] = []
+    if (config.outputFormat !== 'png') {
+      files.push(svgFile)
+    }
+    if (pngFile) {
+      files.push(pngFile)
+    }
+    return files.map((file) => relative(workspace, join(outDir, file)))
+  })
   commitAndPush({ cwd: workspace, files: chartPaths, token: config.token })
   info('done')
 }
