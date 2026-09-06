@@ -1,3 +1,24 @@
+# [1.1.0](https://github.com/pengzhanbo/star-history-action/compare/v1.0.3...v1.1.0) (2026-09-06)
+
+### Bug Fixes
+
+- correct homepage, bugs and repository URLs to star-history-action ([ca80806](https://github.com/pengzhanbo/star-history-action/commit/ca808067b22ed70da86913ea192882058aafd983))
+- rasterize PNG via resvg so the xkcd font renders correctly ([2d41d05](https://github.com/pengzhanbo/star-history-action/commit/2d41d0558a0f657f66dd7b3e281d347c9688c654))
+- show full star counts below 1000 in the end-value label ([90c0a8a](https://github.com/pengzhanbo/star-history-action/commit/90c0a8a05fdedbdafb4d3548474db738af632512))
+
+### Features
+
+- cache action node_modules with actions/cache ([f87dd9c](https://github.com/pengzhanbo/star-history-action/commit/f87dd9c285003d95a8f209e70f987299e02a4ad1))
+- retry GitHub API requests with backoff and rate-limit handling ([a56a032](https://github.com/pengzhanbo/star-history-action/commit/a56a032fdc01877d76d2c1cd64449d8e91d2caf6))
+- subset radar font and render radar per theme ([bd63011](https://github.com/pengzhanbo/star-history-action/commit/bd63011b62f2a22c07be4483394ea983de41e683))
+- support multi-repo comparison charts ([7938d14](https://github.com/pengzhanbo/star-history-action/commit/7938d143797e200ca3e74be44a0c63ced2399bb2))
+- support PNG raster output via output-format input ([b7814b9](https://github.com/pengzhanbo/star-history-action/commit/b7814b97fc1b518d99cf5fdd6e22827e7751d4f5))
+- support radar chart output via radar input ([7b89d01](https://github.com/pengzhanbo/star-history-action/commit/7b89d01fe7f90b65d4e6a1982ad7cc101131e293))
+
+### Performance Improvements
+
+- palette-quantize PNG output for ~65% smaller files ([9ec62a9](https://github.com/pengzhanbo/star-history-action/commit/9ec62a9a77a085e98f0b21da4ddd07418c67fb9a))
+
 ## [1.0.3](https://github.com/pengzhanbo/repo-star-history/compare/v1.0.2...v1.0.3) (2026-09-05)
 
 ## [1.0.2](https://github.com/pengzhanbo/repo-star-history/compare/v1.0.1...v1.0.2) (2026-09-05)
