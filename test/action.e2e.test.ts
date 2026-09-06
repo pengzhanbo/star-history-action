@@ -246,7 +246,7 @@ describe('action end-to-end (mock GitHub API)', () => {
 
     // Commit identity and message come from git.ts.
     expect(git(workspace, 'log', '-1', '--format=%an|%ae|%s').trim()).toBe(
-      'github-actions[bot]|41898282+github-actions[bot]@users.noreply.github.com|chore: update star history chart',
+      'github-actions[bot]|41898282+github-actions[bot]@users.noreply.github.com|chore: update star history chart [skip ci]',
     )
     expect(git(workspace, 'rev-list', '--count', 'HEAD').trim()).toBe('2')
 
@@ -336,7 +336,7 @@ describe('action end-to-end (mock GitHub API)', () => {
 
     // The radar SVGs are part of the chart commit.
     expect(git(workspace, 'log', '-1', '--format=%s').trim()).toBe(
-      'chore: update star history chart',
+      'chore: update star history chart [skip ci]',
     )
   })
 

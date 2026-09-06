@@ -1162,7 +1162,7 @@ function commitAndPush({ cwd, files, token }) {
 		"user.email=41898282+github-actions[bot]@users.noreply.github.com",
 		"commit",
 		"-m",
-		"chore: update star history chart"
+		"chore: update star history chart [skip ci]"
 	]);
 	if (GITHUB_REPOSITORY) {
 		const host = new URL(GITHUB_SERVER_URL).host;
