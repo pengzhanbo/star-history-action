@@ -46,6 +46,25 @@ runs:
     - name: Set up pnpm
       # version defaults to the `packageManager` field of this action's package.json
       uses: pnpm/action-setup@v6
+    - name: Compute dependency cache key
+      id: deps-hash
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      # hashFiles() only resolves paths under GITHUB_WORKSPACE, but this action's
+      # own lockfile lives in github.action_path; hash it here and feed the
+      # digest to actions/cache as a step output.
+      run: echo "lockfile=$(sha256sum pnpm-lock.yaml | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+    - name: Restore dependency cache
+      uses: actions/cache@v4
+      with:
+        # node_modules caches the --prod install result: on a hit the install
+        # step below becomes a fast no-op (pnpm only re-verifies the linkage).
+        path: ${{ github.action_path }}/node_modules
+        key: pnpm-deps-${{ runner.os }}-node24-${{ steps.deps-hash.outputs.lockfile }}
+        # A lockfile change misses the exact key but still restores the previous
+        # node_modules; pnpm then fills in the delta instead of installing cold.
+        restore-keys: |
+          pnpm-deps-${{ runner.os }}-node24-
     - name: Install dependencies
       shell: bash
       working-directory: ${{ github.action_path }}
