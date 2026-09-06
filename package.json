@@ -33,6 +33,7 @@
   "dependencies": {
     "@actions/core": "^3.0.1",
     "@pengzhanbo/utils": "^3.11.0",
+    "@resvg/resvg-js": "^2.6.2",
     "d3-axis": "^3.0.0",
     "d3-scale": "^4.0.2",
     "d3-selection": "^3.0.0",

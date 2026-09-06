@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getInput, info, setFailed } from "@actions/core";
-import sharp from "sharp";
+import { Resvg } from "@resvg/resvg-js";
 import { readFileSync } from "node:fs";
 import subsetFont from "subset-font";
 import { JSDOM } from "jsdom";
@@ -15,6 +15,7 @@ import { axisBottom, axisLeft } from "d3-axis";
 import duration from "dayjs/plugin/duration.js";
 import relativeTime from "dayjs/plugin/relativeTime.js";
 import { setTimeout } from "node:timers/promises";
+import sharp from "sharp";
 import { execFileSync, spawnSync } from "node:child_process";
 //#region src/common/font-subset.ts
 let ttfBuffer;
@@ -1601,6 +1602,57 @@ async function getRepoRadarAttributes(repo, token, records) {
 //#endregion
 //#region src/index.ts
 /**
+* Extracts the CSS background color from a generated SVG (`style="background:…"`),
+* so the rasterizer can paint the same backdrop as the browser would.
+*
+* 从生成的 SVG 中提取 CSS 背景色（`style="background:…"`），使栅格化输出与
+* 浏览器渲染的底色一致。
+*
+* @param svg - Serialized chart SVG / 序列化的图表 SVG
+* @returns The background color, or undefined for transparent / 背景色；透明时返回 undefined
+*/
+function svgBackground(svg) {
+	const bg = /background:([^;"']+)/.exec(svg)?.[1]?.trim();
+	return bg && bg !== "transparent" ? bg : void 0;
+}
+/**
+* Rasterizes a chart SVG to PNG via resvg.
+*
+* 通过 resvg 将图表 SVG 栅格化为 PNG。
+*
+* Unlike librsvg (sharp's engine), resvg loads the xkcd font explicitly from
+* `assets/xkcd.ttf`, so the PNG text style matches the SVG instead of falling
+* back to a system font. The font path resolves from the action repo root —
+* the composite action runs with `working-directory: ${{ github.action_path }}`
+* and both local and e2e runs use the repo root, mirroring `font-subset.ts`.
+*
+* 与 librsvg（sharp 的底层引擎）不同，resvg 显式从 `assets/xkcd.ttf` 加载
+* xkcd 字体，因此 PNG 的文字样式与 SVG 一致，而不会回退到系统字体。字体
+* 路径基于 action 仓库根解析——composite action 以
+* `working-directory: ${{ github.action_path }}` 运行，本地与 e2e 同样在
+* 仓库根运行，与 `font-subset.ts` 一致。
+*
+* @param svg - Chart SVG string / 图表 SVG 字符串
+* @param width - Output width in px; height follows the SVG aspect ratio /
+*   输出宽度（像素）；高度按 SVG 宽高比缩放
+* @returns PNG bytes / PNG 字节
+*/
+function rasterizeSvg(svg, width) {
+	const background = svgBackground(svg);
+	return new Resvg(svg, {
+		fitTo: {
+			mode: "width",
+			value: width
+		},
+		font: {
+			fontFiles: [resolve("assets/xkcd.ttf")],
+			loadSystemFonts: false,
+			defaultFontFamily: "xkcd"
+		},
+		...background ? { background } : {}
+	}).render().asPng();
+}
+/**
 * Runs the full action pipeline: parse → fetch → render → write → commit/push.
 *
 * 运行动作的完整流水线：解析 → 抓取 → 渲染 → 写入 → 提交/推送。
@@ -1637,7 +1689,7 @@ async function run() {
 		}
 		if (pngFile) {
 			const pngPath = join(outDir, pngFile);
-			const png = await sharp(Buffer.from(svg)).png().toBuffer();
+			const png = rasterizeSvg(svg, config.svgWidth);
 			await writeFile(pngPath, png);
 			info(`wrote ${relative(workspace, pngPath)}`);
 		}

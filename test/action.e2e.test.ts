@@ -288,8 +288,10 @@ describe('action end-to-end (mock GitHub API)', () => {
     expect(result.stdout).toContain('wrote assets/star-history.png')
 
     const png = readFileSync(join(workspace, 'assets/star-history.png'))
-    // PNG magic bytes; proves sharp rasterized the chart rather than copying bytes.
+    // PNG magic bytes; proves a real rasterization happened rather than a byte copy.
     expect(png.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+    // PNG IHDR: width 960 (0x3c0) then height 640 (0x280), little-endian halves.
+    expect(png.subarray(16, 24).toString('hex')).toBe('000003c000000280')
   })
 
   it('writes per-theme radar SVGs when radar is enabled', async () => {

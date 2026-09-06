@@ -68,9 +68,9 @@ jobs:
   default token, and the chart does not belong on a feature branch.
 - **Output format**: SVG by default — `output-filename` must end in `.svg`.
   With `output-format: png` or `both`, the chart is rasterized to PNG(s) via
-  sharp (the `.png` name mirrors the `.svg` one, e.g. `star-history-light.png`).
-  Note: the rasterizer uses a system fallback font, so the PNG is a raster
-  preview rather than a pixel-perfect copy of the SVG.
+  resvg (the `.png` name mirrors the `.svg` one, e.g. `star-history-light.png`).
+  resvg loads the xkcd font from the action's `assets/xkcd.ttf`, so the PNG
+  text style matches the SVG instead of falling back to a system font.
 - **Radar chart**: with `radar: true`, a per-repo radar SVG is written alongside
   the history chart, one file per theme like the history chart itself — for a
   single repo/theme that's `<stem>-radar.svg`; multiple repos append
