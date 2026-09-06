@@ -1,3 +1,12 @@
+# [1.2.0](https://github.com/pengzhanbo/star-history-action/compare/v1.1.0...v1.2.0) (2026-09-06)
+
+### Features
+
+- incremental fetch via a committed local cache baseline ([3dff9ad](https://github.com/pengzhanbo/star-history-action/commit/3dff9add1e956e741630cc1ea5709cd38dae3999))
+- rasterize radar charts to PNG when output-format is png/both ([fb3ff0b](https://github.com/pengzhanbo/star-history-action/commit/fb3ff0b0e24b902254b1630d3db7f6151e7d7ebc))
+- support generating multiple output formats in one run ([2135d08](https://github.com/pengzhanbo/star-history-action/commit/2135d087b02b73fc702b2b234a5a0806332e795b))
+- support json data export and tolerate per-repo failures ([9433ea9](https://github.com/pengzhanbo/star-history-action/commit/9433ea94efee2baec30d3254872c8ba40acdd98c))
+
 # [1.1.0](https://github.com/pengzhanbo/star-history-action/compare/v1.0.3...v1.1.0) (2026-09-06)
 
 ### Bug Fixes
