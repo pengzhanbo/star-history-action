@@ -296,6 +296,196 @@ export async function getRepoStarRecords(
 }
 
 /**
+ * Merges newly fetched stargazer timestamps onto a baseline series, producing
+ * the next ascending `{ date, stars }` records for the cache and charts.
+ *
+ * 将新抓取的 stargazer 时间戳合并到基线序列上，产出下一份按日期升序的
+ * `{ date, stars }` 记录，供缓存与图表使用。
+ *
+ * Every stargazer on the same day collapses into one point. When the baseline's
+ * last date already exists (stargazers kept arriving on that day), the point is
+ * updated in place instead of appended, so the series stays strictly ascending.
+ * The caller is expected to have filtered `incMs` to timestamps >= the
+ * baseline's last date; the series end is re-anchored at today with the live
+ * total. With no new stargazers the output is byte-stable relative to the
+ * baseline (barring the final anchor date advancing), keeping unchanged reruns
+ * idempotent.
+ *
+ * 同一天内的所有 stargazer 合并为一个点。当基线最后日期已存在时（当天仍在
+ * 持续出现新 star），就地更新该点而非追加，保证序列严格升序。调用方需先将
+ * `incMs` 过滤为不早于基线最后日期的时间戳；序列末尾会以实时 `total` 重新
+ * 锚定到今天。没有新 stargazer 时输出相对基线字节稳定（除末尾锚点日期自然
+ * 推进外），无变化的重复运行保持幂等。
+ *
+ * @param baseline - Ascending records from the previous run / 上一次运行的升序记录
+ * @param incMs - Newly fetched `starred_at` timestamps, >= the baseline's last
+ *   date, in any order / 新抓取的 `starred_at` 时间戳（不早于基线最后日期，任意顺序）
+ * @param total - Live `stargazers_count` from the repo endpoint / 仓库接口的实时 `stargazers_count`
+ * @returns The merged ascending records / 合并后的升序记录
+ */
+export function mergeStarRecords(
+  baseline: { date: string; stars: number }[],
+  incMs: number[],
+  total: number,
+): { date: string; stars: number }[] {
+  const counts = new Map<string, number>()
+  for (const ms of incMs) {
+    const date = formatDate(ms)
+    counts.set(date, (counts.get(date) ?? 0) + 1)
+  }
+
+  const merged = baseline.map((r) => ({ ...r }))
+  let lastStars = merged.at(-1)?.stars ?? 0
+  // Records arrive newest-first from the API; dates must be applied oldest
+  // first so the count only ever grows.
+  for (const date of [...counts.keys()].sort()) {
+    lastStars += counts.get(date)!
+    const tail = merged.at(-1)
+    if (tail?.date === date) {
+      // The baseline already ends on this day (more stargazers arrived on the
+      // anchor date): update the point instead of breaking the ascending order.
+      merged[merged.length - 1] = { date, stars: lastStars }
+    } else {
+      merged.push({ date, stars: lastStars })
+    }
+  }
+
+  // Anchor the series end at today with the live count; never let it dip.
+  const today = formatDate(Date.now())
+  const tail = merged.at(-1)
+  if (tail?.date === today) {
+    merged[merged.length - 1] = { date: today, stars: Math.max(total, tail.stars) }
+  } else {
+    merged.push({ date: today, stars: total })
+  }
+  return merged
+}
+
+/**
+ * Fetches only the stargazers added since the baseline records, merging them
+ * onto the baseline for a much cheaper update than a full history fetch.
+ *
+ * 仅抓取自基线记录以来新增的 stargazer，并将其合并到基线上，比全量抓取
+ * 历史省下大量请求。
+ *
+ * GitHub serves stargazers newest-first by default, so this walks pages from
+ * the newest end until a page dips below the baseline's last date (probe page 1
+ * is reused, only following pages are fetched). An instance that serves
+ * oldest-first, an empty or undatable baseline, or an increment that outgrows
+ * the request budget all degrade to the full {@link getRepoStarRecords} fetch.
+ * The baseline itself is a sampled approximation for very large histories, so
+ * only the *increment* is made exact — the merged series keeps the baseline's
+ * pre-existing sampling error.
+ *
+ * GitHub 默认按 newest-first 返回 stargazer，因此本函数从最新端逐页抓取，
+ * 直到某一页低于基线最后日期为止（探测用的第 1 页被复用，仅抓后续页）。
+ * 以下情况都会退化为完整的 {@link getRepoStarRecords} 抓取：实例按
+ * oldest-first 返回、基线为空或日期不可解析、增量超出请求预算。对于历史
+ * 规模很大的仓库，基线本身是采样近似，因此只有*增量*被精确化——合并后的
+ * 序列保留基线既有的采样误差。
+ *
+ * @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+ * @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
+ * @param baseline - Ascending records from the previous run (cache baseline) /
+ *   上一次运行的升序记录（缓存基线）
+ * @param maxRequestAmount - Upper bound on the number of pages fetched /
+ *   抓取序列时最大的页数上限
+ * @returns Merged ascending records / 合并后的升序记录
+ * @throws {Error} When the repo has no stars or an API response is not OK /
+ *   当仓库没有 star 或 API 响应非成功状态时抛出
+ */
+export async function getIncrementalStarRecords(
+  repo: string,
+  token: string,
+  baseline: { date: string; stars: number }[],
+  maxRequestAmount: number,
+): Promise<{ date: string; stars: number }[]> {
+  const lastDateMs = Date.parse(`${baseline.at(-1)?.date}T00:00:00Z`)
+  if (baseline.length === 0 || !Number.isFinite(lastDateMs)) {
+    return getRepoStarRecords(repo, token, maxRequestAmount)
+  }
+
+  const repoRes = await request(`${API_BASE}/repos/${repo}`, token)
+  if (!repoRes.ok) {
+    throw new Error(`Failed to get repo ${repo} info: HTTP ${repoRes.status}`)
+  }
+  const repoData = (await repoRes.json()) as { stargazers_count: number; created_at: string }
+  const total = repoData.stargazers_count ?? 0
+  if (total === 0) {
+    throw new Error(`Repo ${repo} has no star records`)
+  }
+
+  // Probe page 1 and reuse it as the first increment page. GitHub serves
+  // newest-first by default; instances that serve oldest-first cannot cheaply
+  // locate the new stargazers, so they fall back to the full fetch.
+  // 探测第 1 页并复用作第一个增量页。GitHub 默认按 newest-first 返回；按
+  // oldest-first 返回的实例无法廉价定位新增 stargazer，因此回退为全量抓取。
+  const pageOneUrl = `${API_BASE}/repos/${repo}/stargazers?per_page=${API_PER_PAGE}&page=1`
+  const pageOneRes = await request(pageOneUrl, token, STARGAZERS_ACCEPT)
+  if (!pageOneRes.ok) {
+    throw new Error(`Failed to get repo ${repo} star records: HTTP ${pageOneRes.status}`)
+  }
+  const firstPage = (await pageOneRes.json()) as { starred_at: string | number }[]
+  if (firstPage.length === 0) {
+    throw new Error(`Repo ${repo} has no star records`)
+  }
+  // Ordering is decided from how far page 1's first entry sits from the repo's
+  // creation date vs. now (same comparison as the full-history fetch): page 1
+  // near the creation date means oldest-first, which cannot be incrementally
+  // cheap. A missing/unparseable creation date yields no signal and falls back.
+  // 排序方向由第 1 页首条与创建日期、当前时刻的距离判定（与全量抓取使用同一
+  // 比较）：第 1 页接近创建日期即为 oldest-first，无法廉价增量；创建日期缺失
+  // 或不可解析时无信号，回退为全量抓取。
+  const tFirst = parseStarredAt(firstPage[0]!.starred_at)
+  const createdAtMs = Date.parse(repoData.created_at ?? '')
+  if (
+    !Number.isFinite(createdAtMs) ||
+    Math.abs(tFirst - createdAtMs) < Math.abs(Date.now() - tFirst)
+  ) {
+    return getRepoStarRecords(repo, token, maxRequestAmount)
+  }
+
+  const incMs = firstPage.map((item) => parseStarredAt(item.starred_at))
+  let reachedBaseline = incMs.some((ms) => ms < lastDateMs)
+  // Walk from page 2 until a page dips below the baseline date, or the request
+  // budget runs out. Only a reached baseline yields an incremental result.
+  let page = 1
+  while (!reachedBaseline && page < maxRequestAmount) {
+    page++
+    const raw = await getRepoStargazers(repo, token, page)
+    if (raw.length === 0) {
+      break
+    }
+    incMs.push(...raw)
+    reachedBaseline = raw.some((ms) => ms < lastDateMs)
+  }
+  if (!reachedBaseline) {
+    // The increment outgrew the budget (e.g. a massive influx since last run):
+    // a partial merge would be wrong, so fall back to a full fetch.
+    // 增量超出预算（例如上次运行后出现爆发式增长）：部分合并会产生错误
+    // 结果，因此回退为全量抓取。
+    return getRepoStarRecords(repo, token, maxRequestAmount)
+  }
+
+  // The live total minus the baseline's final count tells exactly how many
+  // stargazers are new. The API cannot filter by timestamp, so the newest
+  // `newCount` entries (newest-first) are the increment — a date comparison
+  // alone would re-count the baseline's own final-day stargazers.
+  // 实时 total 与基线最终计数的差值即新增的精确数量。API 无法按时间戳过滤，
+  // 因此 newest-first 顺序下的前 `newCount` 条即增量——仅用日期比较会把基线
+  // 最后一天已统计的 stargazer 重复计入。
+  const newCount = Math.max(0, total - baseline[baseline.length - 1]!.stars)
+  const newMs: number[] = []
+  for (const ms of incMs) {
+    if (newMs.length >= newCount) {
+      break
+    }
+    newMs.push(ms)
+  }
+  return mergeStarRecords(baseline, newMs, total)
+}
+
+/**
  * Fetches the owner's avatar URL, or `''` when the user lookup fails.
  *
  * 获取所有者的头像 URL；用户查询失败时返回空字符串。

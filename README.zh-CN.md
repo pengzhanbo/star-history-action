@@ -43,6 +43,7 @@ jobs:
 | `theme`            | 否   | `light`                    | 图表主题：`light`、`dark`，或用逗号/空格分隔的 `light, dark` 以同时输出两种主题。                                                            |
 | `output-format`    | 否   | `svg`                      | 输出文件格式：`svg`（默认）、`png`（由 SVG 栅格化）、`both`，或 `json`（导出结构化记录数据而非图表）。                                       |
 | `radar`            | 否   | `false`                    | 是否同时为每个仓库渲染一份雷达图 SVG，展示仓库健康指标（stars、new stars、pushes、contributors、issues closed、forks），各项均按 0–99 计分。 |
+| `cache`            | 否   | `false`                    | 增量抓取：读取上一次运行的 `<stem>.cache.json` 作为基线，只抓取自基线以来新增的 stargazer，大幅降低大历史仓库的 API 配额消耗。               |
 
 <!-- markdownlint-enable MD060 -->
 
@@ -50,6 +51,7 @@ jobs:
 
 - **数据来源**：GitHub REST API（支持 `GITHUB_API_URL`，因此 GitHub Enterprise 实例同样可用）。
 - **历史保真度**：最多抓取 15 页。历史记录在该预算内（约 1,500 颗 star）的仓库，会得到精确的逐日数据序列；更大的仓库会在均匀分布的边界点采样（每个点与真实数量的偏差在 ±100 颗 star 以内）。
+- **增量抓取**：当 `cache: true` 时，上一次运行生成的 `<stem>.cache.json`（随图表一并提交，包含相同的 `{ date, stars }` 记录）成为基线。后续运行只从最新端逐页抓取，直到某页低于基线日期为止——只需寥寥几次请求即可代替全量历史抓取——并将增量合并到基线上。这对 1,500+ star 的仓库尤其有效：单次运行的请求数不会随历史增长而增加。基线缺失/不可用、GitHub 实例按 oldest-first 返回、或增量超出请求预算等情况都会优雅回退为全量抓取。没有新 stargazer 时缓存字节不变，重复运行保持幂等。
 - **渲染**：手绘风格的 xkcd 线条图，xkcd 字体以内联方式嵌入，因此 SVG 可在任何地方独立渲染。
 - **提交与推送**：图表以 `github-actions[bot]` 身份提交，并推送到默认远程仓库的当前分支。重复运行时若无任何变更，则跳过提交，因此工作流是幂等的。在 `pull_request` 事件中会完全跳过写回——分叉的 PR 无法使用默认 token 推送，且图表不属于功能分支。
 - **输出格式**：默认为 SVG——`output-filename` 必须以 `.svg` 结尾。当 `output-format` 为 `png` 或 `both` 时，图表会通过 resvg 栅格化为 PNG（`.png` 文件名与 `.svg` 对应，例如 `star-history-light.png`）。resvg 会从动作自带的 `assets/xkcd.ttf` 加载 xkcd 字体，因此 PNG 的文字样式与 SVG 一致，而不会回退到系统字体；随后再经 sharp 调色板量化，体积可缩减约 65% 且输出与原始渲染逐像素一致。

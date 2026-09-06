@@ -45,6 +45,12 @@ inputs:
       each scored 0-99
     required: false
     default: 'false'
+  cache:
+    description: Incremental fetch. Reads the previous run's <stem>.cache.json as
+      a baseline and only fetches stargazers added since, slashing API quota on
+      repos with large histories
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -101,4 +107,5 @@ runs:
         INPUT_THEME: ${{ inputs.theme }}
         INPUT_OUTPUT-FORMAT: ${{ inputs.output-format }}
         INPUT_RADAR: ${{ inputs.radar }}
+        INPUT_CACHE: ${{ inputs.cache }}
       run: node dist/index.js

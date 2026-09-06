@@ -5,7 +5,13 @@ import { renderRadarSvg } from './charts/radar-svg.js'
 import { writeOutput } from './common/output.js'
 import { rasterizeSvg } from './common/raster.js'
 import { renderStarHistorySvg } from './render.js'
-import { getChartFilePaths, getRadarFilePaths, parseInputs } from './services/config.js'
+import { readCacheRecords, serializeCache } from './services/cache.js'
+import {
+  getCacheFileName,
+  getChartFilePaths,
+  getRadarFilePaths,
+  parseInputs,
+} from './services/config.js'
 import { GITHUB_WORKSPACE } from './services/env.js'
 import { fetchDatasets } from './services/fetch.js'
 import { commitAndPush } from './services/git.js'
@@ -39,66 +45,84 @@ async function run(): Promise<void> {
     throw new Error('output-directory must point inside the workspace')
   }
 
-  const datasets = await fetchDatasets(config)
+  // With cache: true the previous run's cache file (if any) is the incremental
+  // baseline; a missing or unreadable file simply means a full first fetch.
+  // 启用 cache 时，上一次运行的缓存文件（若存在）即增量基线；文件缺失或
+  // 不可读时首次运行将执行全量抓取。
+  const baselineByRepo = config.cache
+    ? await readCacheRecords(resolve(outDir, getCacheFileName(config)))
+    : null
+  const datasets = await fetchDatasets(config, baselineByRepo ?? undefined)
 
   await mkdir(outDir, { recursive: true })
 
-  // JSON output: structured data instead of charts. No avatar was fetched above
-  // (includeLogo is false), so this branch only touches the star records.
-  // JSON 输出：以结构化数据代替图表。上方未抓取头像（includeLogo 为 false），
-  // 因此此分支只接触 star 记录。
+  const files: string[] = []
   if (config.outputFormat === 'json') {
-    commitAndPush({
-      cwd: workspace,
-      files: [await writeJsonExport(config, datasets, outDir, workspace)],
-      token: config.token,
-    })
-    info('done')
-    return
-  }
-
-  // Rasterize via resvg, which loads the xkcd font from assets/xkcd.ttf so the
-  // PNG text style matches the SVG (librsvg ignores the inlined @font-face).
-  const chartPaths: string[] = []
-  for (const { theme, svgFile, pngFile } of getChartFilePaths(config)) {
-    const svg = await renderStarHistorySvg({ datasets, theme, width: config.svgWidth })
-    if (config.outputFormat !== 'png') {
-      chartPaths.push(await writeOutput({ outDir, workspace, file: svgFile, content: svg }))
+    // JSON output: structured data instead of charts. No avatar was fetched
+    // above (includeLogo is false), so this branch only touches the records.
+    // JSON 输出：以结构化数据代替图表。上方未抓取头像（includeLogo 为
+    // false），因此此分支只接触记录。
+    files.push(await writeJsonExport(config, datasets, outDir, workspace))
+  } else {
+    // Rasterize via resvg, which loads the xkcd font from assets/xkcd.ttf so
+    // the PNG text style matches the SVG (librsvg ignores the inlined
+    // @font-face).
+    for (const { theme, svgFile, pngFile } of getChartFilePaths(config)) {
+      const svg = await renderStarHistorySvg({ datasets, theme, width: config.svgWidth })
+      if (config.outputFormat !== 'png') {
+        files.push(await writeOutput({ outDir, workspace, file: svgFile, content: svg }))
+      }
+      if (pngFile) {
+        files.push(
+          await writeOutput({ outDir, workspace, file: pngFile, content: await rasterizeSvg(svg) }),
+        )
+      }
     }
-    if (pngFile) {
-      chartPaths.push(
-        await writeOutput({ outDir, workspace, file: pngFile, content: await rasterizeSvg(svg) }),
-      )
-    }
-  }
 
-  if (config.radar) {
-    for (const { repo, records } of datasets) {
-      const attributes = await getRepoRadarAttributes(repo, config.token, records)
-      // Radar follows the same output-format rules as the history chart: `svg`
-      // writes SVGs only, `png` only PNGs, `both` both — named per theme/repo.
-      // 雷达图遵循与历史图相同的 output-format 规则：`svg` 仅写 SVG，`png`
-      // 仅写 PNG，`both` 两者都写——按主题/仓库分别命名。
-      for (const { theme, svgFile, pngFile } of getRadarFilePaths(config, repo)) {
-        const svg = await renderRadarSvg(attributes, { theme })
-        if (config.outputFormat !== 'png') {
-          chartPaths.push(await writeOutput({ outDir, workspace, file: svgFile, content: svg }))
-        }
-        if (pngFile) {
-          chartPaths.push(
-            await writeOutput({
-              outDir,
-              workspace,
-              file: pngFile,
-              content: await rasterizeSvg(svg),
-            }),
-          )
+    if (config.radar) {
+      for (const { repo, records } of datasets) {
+        const attributes = await getRepoRadarAttributes(repo, config.token, records)
+        // Radar follows the same output-format rules as the history chart: `svg`
+        // writes SVGs only, `png` only PNGs, `both` both — named per theme/repo.
+        // 雷达图遵循与历史图相同的 output-format 规则：`svg` 仅写 SVG，`png`
+        // 仅写 PNG，`both` 两者都写——按主题/仓库分别命名。
+        for (const { theme, svgFile, pngFile } of getRadarFilePaths(config, repo)) {
+          const svg = await renderRadarSvg(attributes, { theme })
+          if (config.outputFormat !== 'png') {
+            files.push(await writeOutput({ outDir, workspace, file: svgFile, content: svg }))
+          }
+          if (pngFile) {
+            files.push(
+              await writeOutput({
+                outDir,
+                workspace,
+                file: pngFile,
+                content: await rasterizeSvg(svg),
+              }),
+            )
+          }
         }
       }
     }
   }
 
-  commitAndPush({ cwd: workspace, files: chartPaths, token: config.token })
+  // The refreshed baseline rides along so the next run can fetch incrementally.
+  // Its bytes only change when the records do, keeping unchanged reruns
+  // idempotent (no staged diff → no empty commit).
+  // 刷新后的基线一并提交，供下一次运行增量抓取。其字节仅在记录变化时才
+  // 改变，无变化的重复运行保持幂等（无暂存差异 → 无空提交）。
+  if (config.cache) {
+    files.push(
+      await writeOutput({
+        outDir,
+        workspace,
+        file: getCacheFileName(config),
+        content: serializeCache(datasets),
+      }),
+    )
+  }
+
+  commitAndPush({ cwd: workspace, files, token: config.token })
   info('done')
 }
 

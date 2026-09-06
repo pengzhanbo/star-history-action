@@ -1,6 +1,7 @@
 import type { ActionConfig } from '../src/services/config.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  getCacheFileName,
   getChartFilePaths,
   getJsonFileName,
   getRadarFilePaths,
@@ -43,6 +44,7 @@ describe('parseInputs', () => {
       svgWidth: 960,
       themes: ['light'],
       radar: false,
+      cache: false,
       includeLogo: true,
     })
   })
@@ -188,6 +190,30 @@ describe('parseInputs', () => {
     expect(() => parseInputs()).toThrow('output-format "webp" is invalid')
   })
 
+  it.each(['true', 'TRUE', ' True '])(
+    'accepts cache %s (lowercased and trimmed)',
+    async (cache) => {
+      stubInputs({ repo: 'owner/repo', token: 't', cache })
+      const parseInputs = await loadParseInputs()
+
+      expect(parseInputs().cache).toBe(true)
+    },
+  )
+
+  it('accepts cache false explicitly', async () => {
+    stubInputs({ repo: 'owner/repo', token: 't', cache: 'false' })
+    const parseInputs = await loadParseInputs()
+
+    expect(parseInputs().cache).toBe(false)
+  })
+
+  it('throws on an invalid cache value', async () => {
+    stubInputs({ repo: 'owner/repo', token: 't', cache: 'yes' })
+    const parseInputs = await loadParseInputs()
+
+    expect(() => parseInputs()).toThrow('cache "yes" is invalid')
+  })
+
   it.each(['true', 'TRUE', ' True '])('accepts radar %s (truthy)', async (radar) => {
     stubInputs({ repo: 'owner/repo', token: 't', radar })
     const parseInputs = await loadParseInputs()
@@ -220,6 +246,7 @@ describe('getChartFilePaths', () => {
     svgWidth: 960,
     themes: ['light'],
     radar: false,
+    cache: false,
     includeLogo: true,
   }
 
@@ -289,6 +316,7 @@ describe('getJsonFileName', () => {
     svgWidth: 960,
     themes: ['light'],
     radar: false,
+    cache: false,
     includeLogo: false,
   }
 
@@ -300,8 +328,39 @@ describe('getJsonFileName', () => {
     expect(getJsonFileName({ ...baseConfig, outputFilename: 'chart.SVG' })).toBe('chart.json')
   })
 
-  it('never derives theme variants (JSON is theme-agnostic)', () => {
+  it('never derives theme variants (JSON is theme-agnostic)', async () => {
     expect(getJsonFileName({ ...baseConfig, themes: ['light', 'dark'] })).toBe('star-history.json')
+  })
+})
+
+describe('getCacheFileName', () => {
+  const baseConfig: ActionConfig = {
+    repos: ['owner/repo'],
+    token: 't',
+    outputDirectory: 'assets',
+    outputFilename: 'star-history.svg',
+    outputFormat: 'svg',
+    svgWidth: 960,
+    themes: ['light'],
+    radar: false,
+    cache: true,
+    includeLogo: true,
+  }
+
+  it('swaps the extension for .cache.json', () => {
+    expect(getCacheFileName(baseConfig)).toBe('star-history.cache.json')
+  })
+
+  it('keeps the stem for an uppercase extension', () => {
+    expect(getCacheFileName({ ...baseConfig, outputFilename: 'chart.SVG' })).toBe(
+      'chart.cache.json',
+    )
+  })
+
+  it('never derives theme variants (the cache is theme-agnostic)', () => {
+    expect(getCacheFileName({ ...baseConfig, themes: ['light', 'dark'] })).toBe(
+      'star-history.cache.json',
+    )
   })
 })
 
@@ -315,6 +374,7 @@ describe('getRadarFileName', () => {
     svgWidth: 960,
     themes: ['light'],
     radar: true,
+    cache: false,
     includeLogo: true,
   }
 
@@ -365,6 +425,7 @@ describe('getRadarFilePaths', () => {
     svgWidth: 960,
     themes: ['light'],
     radar: true,
+    cache: false,
     includeLogo: true,
   }
 

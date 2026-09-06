@@ -36,6 +36,10 @@ const repoData: Record<
 let server: http.Server
 let serverUrl = ''
 
+// Counts every stargazers page request the mock served; the cache e2e case
+// uses the per-run delta to prove the incremental fetch skips old pages.
+let stargazerRequestCount = 0
+
 let scratchRoot: string
 let workspace: string
 
@@ -118,6 +122,7 @@ beforeAll(async () => {
 
     const stargazersMatch = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)\/stargazers$/)
     if (stargazersMatch) {
+      stargazerRequestCount++
       const key = `${stargazersMatch[1]}/${stargazersMatch[2]}`
       const data = repoData[key]
       if (data) {
@@ -403,5 +408,59 @@ describe('action end-to-end (mock GitHub API)', () => {
     expect(svg.match(/class="xkcd-chart-xyline"/g)).toHaveLength(1)
     expect(svg).toContain('owner/repo')
     expect(svg).not.toContain('nope/repo')
+  })
+
+  it('fetches incrementally from the cache after the first full run', async () => {
+    // A dedicated output-filename keeps this case isolated from the charts the
+    // earlier cases left in the shared workspace.
+    const env = {
+      'INPUT_CACHE': 'true',
+      'INPUT_REPO': 'owner/repo',
+      'INPUT_THEME': 'light',
+      'INPUT_OUTPUT-FILENAME': 'history-cache.svg',
+    }
+
+    // First run: no cache yet, so the full 3-page history is fetched and a
+    // baseline cache file is written alongside the chart.
+    const first = await runAction(env)
+    expectSuccess(first)
+    expect(first.stdout).toContain('wrote assets/history-cache.svg')
+    expect(first.stdout).toContain('wrote assets/history-cache.cache.json')
+    expect(existsSync(join(workspace, 'assets/history-cache.cache.json'))).toBe(true)
+    const fullHistoryRequests = stargazerRequestCount
+    expect(fullHistoryRequests).toBeGreaterThan(1)
+
+    // A stargazer arrives since the first run: page 1 gains one newest entry
+    // and the live total bumps. The mock serves without a page-size cap, so the
+    // injected entry simply leads the page (newest-first).
+    const newIso = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    repoData['owner/repo']!.stargazers_count = 261
+    repoData['owner/repo']!.pages = {
+      ...starsByPage,
+      1: [newIso, ...starsByPage[1]!.slice(0, 99)],
+    }
+
+    // Second run: the walk stops at the reused page 1 (it dips below the
+    // baseline), so the refresh costs far fewer stargazer requests than the
+    // full first fetch — while still charting the new star.
+    const second = await runAction(env)
+    expectSuccess(second)
+    const incrementalRequests = stargazerRequestCount - fullHistoryRequests
+    expect(incrementalRequests).toBeLessThan(fullHistoryRequests)
+
+    const cache = JSON.parse(
+      readFileSync(join(workspace, 'assets/history-cache.cache.json'), 'utf8'),
+    )
+    const records = (
+      cache.repos as { repo: string; records: { date: string; stars: number }[] }[]
+    )[0]!.records
+    expect(records.at(-1)!.stars).toBe(261)
+
+    // Third run with no further changes is byte-stable: the cache stages no
+    // diff, so the rerun commits nothing (idempotent).
+    const headBefore = git(workspace, 'rev-parse', 'HEAD').trim()
+    const third = await runAction(env)
+    expectSuccess(third)
+    expect(git(workspace, 'rev-parse', 'HEAD').trim()).toBe(headBefore)
   })
 })

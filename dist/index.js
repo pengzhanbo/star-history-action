@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getInput, info, setFailed, warning } from "@actions/core";
 import { readFileSync } from "node:fs";
@@ -1002,6 +1002,53 @@ function fixJsdomSvgCasing(svgContent) {
 	return svgContent.replace(/feturbulence/g, "feTurbulence").replace(/fedisplacementmap/g, "feDisplacementMap").replace(/filterunits/g, "filterUnits").replace(/basefrequency/g, "baseFrequency").replace(/xchannelselector/g, "xChannelSelector").replace(/ychannelselector/g, "yChannelSelector").replace(/\btextlength=/g, "textLength=").replace(/\blengthadjust=/g, "lengthAdjust=");
 }
 //#endregion
+//#region src/services/cache.ts
+/**
+* Reads the incremental-fetch cache file into a per-repo baseline map when the
+* file exists and parses cleanly; `null` on any failure (missing, unreadable,
+* or structurally invalid JSON) tells the caller to fall back to a full fetch.
+*
+* 读取增量抓取缓存文件为按仓库索引的基线映射；文件缺失、不可读或结构非法的
+* JSON 一律返回 `null`，调用方据此回退为全量抓取。
+*
+* @param filePath - Absolute path of the cache file / 缓存文件的绝对路径
+* @returns Per-repo baseline records, or `null` / 按仓库索引的基线记录，或 `null`
+*/
+async function readCacheRecords(filePath) {
+	try {
+		const raw = await readFile(filePath, "utf8");
+		const data = JSON.parse(raw);
+		if (!Array.isArray(data?.repos)) return null;
+		const byRepo = /* @__PURE__ */ new Map();
+		for (const entry of data.repos) {
+			if (typeof entry?.repo !== "string" || !Array.isArray(entry.records)) return null;
+			const records = entry.records;
+			if (records.some((r) => typeof r?.date !== "string" || !Number.isInteger(r?.stars))) return null;
+			byRepo.set(entry.repo, records);
+		}
+		return byRepo;
+	} catch {
+		return null;
+	}
+}
+/**
+* Serializes the datasets into the cache file content. No `updatedAt` stamp is
+* written: the bytes only change when the records change, keeping unchanged
+* reruns idempotent (an unchanged cache stages no git diff).
+*
+* 将数据集序列化为缓存文件内容。不写入 `updatedAt` 时间戳：仅当记录变化时
+* 字节才变化，无变化的重复运行保持幂等（不变的缓存不会产生 git 暂存差异）。
+*
+* @param datasets - Fetched datasets, one per repo / 抓取的数据集，每个仓库一条
+* @returns Pretty-printed cache JSON / 格式化后的缓存 JSON
+*/
+function serializeCache(datasets) {
+	return JSON.stringify({ repos: datasets.map(({ repo, records }) => ({
+		repo,
+		records
+	})) }, null, 2);
+}
+//#endregion
 //#region src/services/env.ts
 /**
 * Base URL of the GitHub API; honoring `GITHUB_API_URL` also supports
@@ -1093,6 +1140,24 @@ function isOutputFormat(value) {
 	return OUTPUT_FORMATS.includes(value);
 }
 /**
+* Parses a `true`/`false` action input (case- and whitespace-insensitive,
+* defaulting to `false`). Empty values are tolerated so boolean inputs stay
+* optional.
+*
+* 解析 `true`/`false` 的动作输入（大小写与空白不敏感，默认 `false`）。
+* 空值被容忍，因此布尔输入保持可选。
+*
+* @param key - Input key (without the `INPUT_` prefix) / 输入键名（不含 `INPUT_` 前缀）
+* @returns True when the input parses to `true` / 输入解析为 `true` 时返回真
+* @throws {Error} When the value is neither `true` nor `false` / 当值既非 `true` 也非 `false` 时抛出
+*/
+function parseBooleanInput(key) {
+	const raw = getInput(key);
+	const value = raw.trim().toLowerCase();
+	if (value && value !== "true" && value !== "false") throw new Error(`${key} "${raw}" is invalid; use true or false`);
+	return value === "true";
+}
+/**
 * Reads and validates all action inputs from the runner environment.
 *
 * 从 runner 环境中读取并校验全部动作输入。
@@ -1122,10 +1187,8 @@ function parseInputs() {
 	const rawFormat = getInput("output-format") || "svg";
 	const outputFormat = rawFormat.trim().toLowerCase();
 	if (!isOutputFormat(outputFormat)) throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, both, or json`);
-	const rawRadar = getInput("radar");
-	const radarValue = rawRadar.trim().toLowerCase();
-	if (radarValue && radarValue !== "true" && radarValue !== "false") throw new Error(`radar "${rawRadar}" is invalid; use true or false`);
-	const radar = radarValue === "true";
+	const radar = parseBooleanInput("radar");
+	const cache = parseBooleanInput("cache");
 	const rawWidth = getInput("svg-width") || "960";
 	const svgWidth = Number(rawWidth);
 	if (!Number.isInteger(svgWidth) || svgWidth < 1) throw new Error(`svg-width must be a positive integer, got "${rawWidth}"`);
@@ -1147,6 +1210,7 @@ function parseInputs() {
 		svgWidth,
 		themes,
 		radar,
+		cache,
 		includeLogo: outputFormat !== "json"
 	};
 }
@@ -1208,6 +1272,25 @@ function getChartFilePaths(config) {
 */
 function getJsonFileName(config) {
 	return config.outputFilename.replace(/\.svg$/i, ".json");
+}
+/**
+* Derives the incremental-fetch cache file name by swapping the extension of
+* `output-filename` for `.cache.json`. The cache holds every repo's records in
+* one theme-agnostic file, so it never derives `-light`/`-dark` variants.
+*
+* 通过替换 `output-filename` 的扩展名为 `.cache.json` 派生增量抓取缓存文件名。
+* 缓存将所有仓库的记录聚合到一个与主题无关的文件中，因此不派生
+* `-light`/`-dark` 变体。
+*
+* @param config - Parsed action inputs / 解析后的动作输入
+* @returns The cache file name / 缓存文件名
+* @example
+* getCacheFileName({ ...outputFilename: 'star-history.svg' })
+* // 'star-history.cache.json'
+*/
+function getCacheFileName(config) {
+	const extIndex = config.outputFilename.lastIndexOf(".");
+	return `${extIndex > 0 ? config.outputFilename.slice(0, extIndex) : config.outputFilename}.cache.json`;
 }
 /**
 * Derives the radar chart file name for one repo (and, on multi-theme runs, one
@@ -1516,6 +1599,132 @@ async function getRepoStarRecords(repo, token, maxRequestAmount) {
 	}));
 }
 /**
+* Merges newly fetched stargazer timestamps onto a baseline series, producing
+* the next ascending `{ date, stars }` records for the cache and charts.
+*
+* 将新抓取的 stargazer 时间戳合并到基线序列上，产出下一份按日期升序的
+* `{ date, stars }` 记录，供缓存与图表使用。
+*
+* Every stargazer on the same day collapses into one point. When the baseline's
+* last date already exists (stargazers kept arriving on that day), the point is
+* updated in place instead of appended, so the series stays strictly ascending.
+* The caller is expected to have filtered `incMs` to timestamps >= the
+* baseline's last date; the series end is re-anchored at today with the live
+* total. With no new stargazers the output is byte-stable relative to the
+* baseline (barring the final anchor date advancing), keeping unchanged reruns
+* idempotent.
+*
+* 同一天内的所有 stargazer 合并为一个点。当基线最后日期已存在时（当天仍在
+* 持续出现新 star），就地更新该点而非追加，保证序列严格升序。调用方需先将
+* `incMs` 过滤为不早于基线最后日期的时间戳；序列末尾会以实时 `total` 重新
+* 锚定到今天。没有新 stargazer 时输出相对基线字节稳定（除末尾锚点日期自然
+* 推进外），无变化的重复运行保持幂等。
+*
+* @param baseline - Ascending records from the previous run / 上一次运行的升序记录
+* @param incMs - Newly fetched `starred_at` timestamps, >= the baseline's last
+*   date, in any order / 新抓取的 `starred_at` 时间戳（不早于基线最后日期，任意顺序）
+* @param total - Live `stargazers_count` from the repo endpoint / 仓库接口的实时 `stargazers_count`
+* @returns The merged ascending records / 合并后的升序记录
+*/
+function mergeStarRecords(baseline, incMs, total) {
+	const counts = /* @__PURE__ */ new Map();
+	for (const ms of incMs) {
+		const date = formatDate(ms);
+		counts.set(date, (counts.get(date) ?? 0) + 1);
+	}
+	const merged = baseline.map((r) => ({ ...r }));
+	let lastStars = merged.at(-1)?.stars ?? 0;
+	for (const date of [...counts.keys()].sort()) {
+		lastStars += counts.get(date);
+		if (merged.at(-1)?.date === date) merged[merged.length - 1] = {
+			date,
+			stars: lastStars
+		};
+		else merged.push({
+			date,
+			stars: lastStars
+		});
+	}
+	const today = formatDate(Date.now());
+	const tail = merged.at(-1);
+	if (tail?.date === today) merged[merged.length - 1] = {
+		date: today,
+		stars: Math.max(total, tail.stars)
+	};
+	else merged.push({
+		date: today,
+		stars: total
+	});
+	return merged;
+}
+/**
+* Fetches only the stargazers added since the baseline records, merging them
+* onto the baseline for a much cheaper update than a full history fetch.
+*
+* 仅抓取自基线记录以来新增的 stargazer，并将其合并到基线上，比全量抓取
+* 历史省下大量请求。
+*
+* GitHub serves stargazers newest-first by default, so this walks pages from
+* the newest end until a page dips below the baseline's last date (probe page 1
+* is reused, only following pages are fetched). An instance that serves
+* oldest-first, an empty or undatable baseline, or an increment that outgrows
+* the request budget all degrade to the full {@link getRepoStarRecords} fetch.
+* The baseline itself is a sampled approximation for very large histories, so
+* only the *increment* is made exact — the merged series keeps the baseline's
+* pre-existing sampling error.
+*
+* GitHub 默认按 newest-first 返回 stargazer，因此本函数从最新端逐页抓取，
+* 直到某一页低于基线最后日期为止（探测用的第 1 页被复用，仅抓后续页）。
+* 以下情况都会退化为完整的 {@link getRepoStarRecords} 抓取：实例按
+* oldest-first 返回、基线为空或日期不可解析、增量超出请求预算。对于历史
+* 规模很大的仓库，基线本身是采样近似，因此只有*增量*被精确化——合并后的
+* 序列保留基线既有的采样误差。
+*
+* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+* @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
+* @param baseline - Ascending records from the previous run (cache baseline) /
+*   上一次运行的升序记录（缓存基线）
+* @param maxRequestAmount - Upper bound on the number of pages fetched /
+*   抓取序列时最大的页数上限
+* @returns Merged ascending records / 合并后的升序记录
+* @throws {Error} When the repo has no stars or an API response is not OK /
+*   当仓库没有 star 或 API 响应非成功状态时抛出
+*/
+async function getIncrementalStarRecords(repo, token, baseline, maxRequestAmount) {
+	const lastDateMs = Date.parse(`${baseline.at(-1)?.date}T00:00:00Z`);
+	if (baseline.length === 0 || !Number.isFinite(lastDateMs)) return getRepoStarRecords(repo, token, maxRequestAmount);
+	const repoRes = await request(`${API_BASE$1}/repos/${repo}`, token);
+	if (!repoRes.ok) throw new Error(`Failed to get repo ${repo} info: HTTP ${repoRes.status}`);
+	const repoData = await repoRes.json();
+	const total = repoData.stargazers_count ?? 0;
+	if (total === 0) throw new Error(`Repo ${repo} has no star records`);
+	const pageOneRes = await request(`${API_BASE$1}/repos/${repo}/stargazers?per_page=100&page=1`, token, STARGAZERS_ACCEPT);
+	if (!pageOneRes.ok) throw new Error(`Failed to get repo ${repo} star records: HTTP ${pageOneRes.status}`);
+	const firstPage = await pageOneRes.json();
+	if (firstPage.length === 0) throw new Error(`Repo ${repo} has no star records`);
+	const tFirst = parseStarredAt(firstPage[0].starred_at);
+	const createdAtMs = Date.parse(repoData.created_at ?? "");
+	if (!Number.isFinite(createdAtMs) || Math.abs(tFirst - createdAtMs) < Math.abs(Date.now() - tFirst)) return getRepoStarRecords(repo, token, maxRequestAmount);
+	const incMs = firstPage.map((item) => parseStarredAt(item.starred_at));
+	let reachedBaseline = incMs.some((ms) => ms < lastDateMs);
+	let page = 1;
+	while (!reachedBaseline && page < maxRequestAmount) {
+		page++;
+		const raw = await getRepoStargazers(repo, token, page);
+		if (raw.length === 0) break;
+		incMs.push(...raw);
+		reachedBaseline = raw.some((ms) => ms < lastDateMs);
+	}
+	if (!reachedBaseline) return getRepoStarRecords(repo, token, maxRequestAmount);
+	const newCount = Math.max(0, total - baseline[baseline.length - 1].stars);
+	const newMs = [];
+	for (const ms of incMs) {
+		if (newMs.length >= newCount) break;
+		newMs.push(ms);
+	}
+	return mergeStarRecords(baseline, newMs, total);
+}
+/**
 * Fetches the owner's avatar URL, or `''` when the user lookup fails.
 *
 * 获取所有者的头像 URL；用户查询失败时返回空字符串。
@@ -1560,16 +1769,29 @@ async function toBase64(url) {
 * 仅跳过该仓库：其余仓库照常出图，失败以 warning 记录。仅当全部仓库都
 * 失败时才失败——此时已无任何可写内容。
 *
+* With `cache: true` and a baseline for a repo, only the stargazers added since
+* the baseline are fetched (see {@link getIncrementalStarRecords}), keeping the
+* per-repo request count flat as histories grow.
+*
+* 当 `cache: true` 且存在仓库基线时，只抓取自基线以来新增的 stargazer
+* （见 {@link getIncrementalStarRecords}），使单仓库请求数不随历史增长。
+*
 * @param config - Parsed action inputs / 解析后的动作输入
+* @param baselineByRepo - Cache baseline records per repo; absent when `cache`
+*   is off or the cache file is missing/invalid / 按仓库索引的缓存基线记录；
+*   `cache` 关闭或缓存文件缺失/非法时缺省
 * @returns Datasets for the repos that fetched successfully / 抓取成功的仓库数据集
 * @throws {Error} When every repo fails to fetch / 当所有仓库都抓取失败时抛出
 */
-async function fetchDatasets(config) {
-	const settled = await Promise.allSettled(config.repos.map(async (repo) => ({
-		repo,
-		records: await getRepoStarRecords(repo, config.token, 15),
-		logo: config.includeLogo ? await toBase64(await getRepoLogo(repo, config.token)).catch(() => "") : ""
-	})));
+async function fetchDatasets(config, baselineByRepo) {
+	const settled = await Promise.allSettled(config.repos.map(async (repo) => {
+		const baseline = baselineByRepo?.get(repo);
+		return {
+			repo,
+			records: config.cache && baseline && baseline.length > 0 ? await getIncrementalStarRecords(repo, config.token, baseline, 15) : await getRepoStarRecords(repo, config.token, 15),
+			logo: config.includeLogo ? await toBase64(await getRepoLogo(repo, config.token)).catch(() => "") : ""
+		};
+	}));
 	const datasets = [];
 	settled.forEach((result, i) => {
 		if (result.status === "fulfilled") datasets.push(result.value);
@@ -1837,58 +2059,58 @@ async function run() {
 	const outDir = resolve(workspace, config.outputDirectory);
 	const isInsideWorkspace = outDir === workspace || outDir.startsWith(`${workspace}${sep}`);
 	if (!isAbsolute(outDir) || !isInsideWorkspace) throw new Error("output-directory must point inside the workspace");
-	const datasets = await fetchDatasets(config);
+	const datasets = await fetchDatasets(config, (config.cache ? await readCacheRecords(resolve(outDir, getCacheFileName(config))) : null) ?? void 0);
 	await mkdir(outDir, { recursive: true });
-	if (config.outputFormat === "json") {
-		commitAndPush({
-			cwd: workspace,
-			files: [await writeJsonExport(config, datasets, outDir, workspace)],
-			token: config.token
-		});
-		info("done");
-		return;
-	}
-	const chartPaths = [];
-	for (const { theme, svgFile, pngFile } of getChartFilePaths(config)) {
-		const svg = await renderStarHistorySvg({
-			datasets,
-			theme,
-			width: config.svgWidth
-		});
-		if (config.outputFormat !== "png") chartPaths.push(await writeOutput({
-			outDir,
-			workspace,
-			file: svgFile,
-			content: svg
-		}));
-		if (pngFile) chartPaths.push(await writeOutput({
-			outDir,
-			workspace,
-			file: pngFile,
-			content: await rasterizeSvg(svg)
-		}));
-	}
-	if (config.radar) for (const { repo, records } of datasets) {
-		const attributes = await getRepoRadarAttributes(repo, config.token, records);
-		for (const { theme, svgFile, pngFile } of getRadarFilePaths(config, repo)) {
-			const svg = await renderRadarSvg(attributes, { theme });
-			if (config.outputFormat !== "png") chartPaths.push(await writeOutput({
+	const files = [];
+	if (config.outputFormat === "json") files.push(await writeJsonExport(config, datasets, outDir, workspace));
+	else {
+		for (const { theme, svgFile, pngFile } of getChartFilePaths(config)) {
+			const svg = await renderStarHistorySvg({
+				datasets,
+				theme,
+				width: config.svgWidth
+			});
+			if (config.outputFormat !== "png") files.push(await writeOutput({
 				outDir,
 				workspace,
 				file: svgFile,
 				content: svg
 			}));
-			if (pngFile) chartPaths.push(await writeOutput({
+			if (pngFile) files.push(await writeOutput({
 				outDir,
 				workspace,
 				file: pngFile,
 				content: await rasterizeSvg(svg)
 			}));
 		}
+		if (config.radar) for (const { repo, records } of datasets) {
+			const attributes = await getRepoRadarAttributes(repo, config.token, records);
+			for (const { theme, svgFile, pngFile } of getRadarFilePaths(config, repo)) {
+				const svg = await renderRadarSvg(attributes, { theme });
+				if (config.outputFormat !== "png") files.push(await writeOutput({
+					outDir,
+					workspace,
+					file: svgFile,
+					content: svg
+				}));
+				if (pngFile) files.push(await writeOutput({
+					outDir,
+					workspace,
+					file: pngFile,
+					content: await rasterizeSvg(svg)
+				}));
+			}
+		}
 	}
+	if (config.cache) files.push(await writeOutput({
+		outDir,
+		workspace,
+		file: getCacheFileName(config),
+		content: serializeCache(datasets)
+	}));
 	commitAndPush({
 		cwd: workspace,
-		files: chartPaths,
+		files,
 		token: config.token
 	});
 	info("done");

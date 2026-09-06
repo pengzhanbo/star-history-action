@@ -1,5 +1,12 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import { getRepoLogo, getRepoStarRecords, getRepoStargazers, request } from '../src/services/api.js'
+import {
+  getIncrementalStarRecords,
+  getRepoLogo,
+  getRepoStarRecords,
+  getRepoStargazers,
+  mergeStarRecords,
+  request,
+} from '../src/services/api.js'
 import { formatDate } from '../src/services/utils.js'
 
 // api.ts computes API_BASE from GITHUB_API_URL at module evaluation; pin it
@@ -445,6 +452,215 @@ describe('getRepoStarRecords', () => {
     expect(records.length).toBe(16)
     expect(records[0]).toEqual({ date: formatDate(nowMs - 40 * day), stars: 0 })
     expect(records.at(-2)).toEqual({ date: formatDate(nowMs - day), stars: 3900 })
+    expect(records.at(-1)).toEqual({ date: TODAY, stars: 4000 })
+  })
+})
+
+describe('mergeStarRecords', () => {
+  const day = 24 * 60 * 60 * 1000
+  const TODAY = formatDate(Date.now())
+  const D1 = formatDate(Date.now() - 3 * day)
+  const D2 = formatDate(Date.now() - 1 * day)
+
+  it('appends new days and collapses same-day stars', () => {
+    const baseline = [{ date: D1, stars: 100 }]
+    // Three brand-new stargazers: one on D2, two today.
+    const incMs = [
+      Date.parse(`${D2}T18:00:00Z`),
+      Date.parse(`${TODAY}T09:00:00Z`),
+      Date.parse(`${TODAY}T21:00:00Z`),
+    ]
+
+    expect(mergeStarRecords(baseline, incMs, 103)).toEqual([
+      { date: D1, stars: 100 },
+      { date: D2, stars: 101 },
+      { date: TODAY, stars: 103 },
+    ])
+  })
+
+  it('updates the baseline end date in place when new stars share it', () => {
+    const baseline = [
+      { date: D1, stars: 100 },
+      { date: D2, stars: 250 },
+    ]
+    // Both new stars arrive on the baseline's last day: the point is updated
+    // (250 + 2) instead of appended, keeping the series strictly ascending.
+    const incMs = [Date.parse(`${D2}T20:00:00Z`), Date.parse(`${D2}T22:00:00Z`)]
+
+    expect(mergeStarRecords(baseline, incMs, 252)).toEqual([
+      { date: D1, stars: 100 },
+      { date: D2, stars: 252 },
+      { date: TODAY, stars: 252 },
+    ])
+  })
+
+  it('is byte-stable without new stargazers when the anchor is already today', () => {
+    const baseline = [
+      { date: D1, stars: 100 },
+      { date: TODAY, stars: 250 },
+    ]
+
+    expect(mergeStarRecords(baseline, [], 250)).toEqual(baseline)
+  })
+
+  it('is insensitive to the incoming order (dates are applied oldest-first)', () => {
+    const baseline = [{ date: D1, stars: 100 }]
+    const incMs = [Date.parse(`${TODAY}T21:00:00Z`), Date.parse(`${TODAY}T09:00:00Z`)]
+
+    expect(mergeStarRecords(baseline, incMs, 102)).toEqual([
+      { date: D1, stars: 100 },
+      { date: TODAY, stars: 102 },
+    ])
+  })
+
+  it('builds a series from scratch for an empty baseline', () => {
+    expect(
+      mergeStarRecords([], [Date.parse(`${D2}T10:00:00Z`), Date.parse(`${TODAY}T08:00:00Z`)], 2),
+    ).toEqual([
+      { date: D2, stars: 1 },
+      { date: TODAY, stars: 2 },
+    ])
+  })
+})
+
+describe('getIncrementalStarRecords', () => {
+  const day = 24 * 60 * 60 * 1000
+  const TODAY = formatDate(Date.now())
+  const YESTERDAY = formatDate(Date.now() - day)
+
+  // Serves a mock repo info + one page of stargazers per entry in `pages`.
+  function mockPages(options: {
+    total: number
+    createdAt: string
+    pages: Record<number, { starred_at: string }[]>
+    linkHeader?: Record<string, string>
+  }): void {
+    fetchMock.mockImplementation(async (input) => {
+      const url = callUrl(input)
+      if (url.endsWith('/repos/owner/repo')) {
+        return jsonResponse({ stargazers_count: options.total, created_at: options.createdAt })
+      }
+      if (url.includes('/stargazers')) {
+        const page = Number(new URL(url).searchParams.get('page') ?? '1')
+        const body = options.pages[page] ?? []
+        return jsonResponse(body, page === 1 ? (options.linkHeader ?? {}) : {})
+      }
+      return jsonResponse({}, {}, 404)
+    })
+  }
+
+  it('fetches only the newest pages down to the baseline date and merges', async () => {
+    const baseline = [
+      { date: formatDate(Date.now() - 3 * day), stars: 100 },
+      { date: YESTERDAY, stars: 250 },
+    ]
+    // Page 1 mixes a yesterday star (new) with an ancient star (below the
+    // baseline), so the walk stops after the probe page.
+    mockPages({
+      total: 251,
+      createdAt: '2024-01-01T00:00:00Z',
+      pages: {
+        1: [
+          stargazerAt(new Date(Date.parse(`${YESTERDAY}T18:00:00Z`)).toISOString()),
+          stargazerAt('2024-03-01T00:00:00Z'),
+        ],
+      },
+    })
+
+    const records = await getIncrementalStarRecords('owner/repo', TOKEN, baseline, 15)
+
+    expect(records).toEqual([
+      { date: formatDate(Date.now() - 3 * day), stars: 100 },
+      { date: YESTERDAY, stars: 251 },
+      { date: TODAY, stars: 251 },
+    ])
+    // repo info + the reused page-1 probe only — no full-history walk.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the baseline byte-stable when no stargazers arrived since', async () => {
+    const baseline = [
+      { date: formatDate(Date.now() - 3 * day), stars: 100 },
+      { date: TODAY, stars: 250 },
+    ]
+    // Page 1's newest entry sits close to now (newest-first) but belongs to a
+    // star already counted in the baseline; `total === baseline.end` means zero
+    // new stargazers, so nothing is merged and the anchor is re-used as-is.
+    mockPages({
+      total: 250,
+      createdAt: '2024-01-01T00:00:00Z',
+      pages: {
+        1: [
+          stargazerAt(new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()),
+          stargazerAt('2024-03-01T00:00:00Z'),
+        ],
+      },
+    })
+
+    const records = await getIncrementalStarRecords('owner/repo', TOKEN, baseline, 15)
+
+    expect(records).toEqual(baseline)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('falls back to a full fetch for oldest-first instances', async () => {
+    // Page 1's first entry sits next to the creation date → oldest-first.
+    mockPages({
+      total: 150,
+      createdAt: '2024-01-01T00:00:00Z',
+      pages: {
+        1: Array.from({ length: 100 }, () => stargazerAt('2024-01-05T00:00:00Z')),
+        2: Array.from({ length: 50 }, () => stargazerAt('2024-02-10T00:00:00Z')),
+      },
+      linkHeader: linkHeader(2, 2),
+    })
+
+    const records = await getIncrementalStarRecords(
+      'owner/repo',
+      TOKEN,
+      [{ date: TODAY, stars: 150 }],
+      15,
+    )
+
+    // The full-history result, not an incremental merge.
+    expect(records).toEqual([
+      { date: '2024-01-05', stars: 100 },
+      { date: '2024-02-10', stars: 150 },
+      { date: TODAY, stars: 150 },
+    ])
+  })
+
+  it('falls back to a full fetch when the increment outgrows the budget', async () => {
+    // Newest-first pages date from yesterday back across ~40 days. The walk
+    // spends its whole budget (15 pages) without ever dipping below the
+    // baseline — far more stars arrived since last run — so the incremental
+    // merge is abandoned for a full (sampled) fetch.
+    // newest-first 页面从昨天起跨约 40 天分布。走页耗尽全部预算（15 页）
+    // 仍未低于基线日期——上次运行以来新增远多于预算——因此放弃增量合并，
+    // 回退为全量（采样）抓取。
+    mockPages({
+      total: 4000,
+      createdAt: '2024-01-01T00:00:00Z',
+      pages: Object.fromEntries(
+        Array.from({ length: 40 }, (_, i) => [
+          i + 1,
+          Array.from({ length: 100 }, () =>
+            stargazerAt(new Date(Date.now() - (i + 1) * day).toISOString()),
+          ),
+        ]),
+      ),
+      linkHeader: linkHeader(2, 40),
+    })
+
+    const records = await getIncrementalStarRecords(
+      'owner/repo',
+      TOKEN,
+      [{ date: formatDate(Date.now() - 16 * day), stars: 0 }],
+      15,
+    )
+
+    // A sampled full history (15 sampled points + the today anchor).
+    expect(records.length).toBe(16)
     expect(records.at(-1)).toEqual({ date: TODAY, stars: 4000 })
   })
 })

@@ -81,6 +81,19 @@ export interface ActionConfig {
    */
   radar: boolean // default false
   /**
+   * Whether incremental fetch is enabled: with `cache: true` the action reads
+   * the last run's cache file (if any) as a baseline and only fetches the new
+   * stargazers, slashing API quota on repos with large histories. The cache is
+   * a dedicated `<stem>.cache.json` (no `updatedAt`, so unchanged runs stay
+   * idempotent), committed alongside the charts.
+   *
+   * 是否启用增量抓取：`cache: true` 时会读取上一次运行的缓存文件（若存在）
+   * 作为基线，只抓取新增的 stargazer，大幅降低大历史仓库的 API 配额消耗。
+   * 缓存为专用的 `<stem>.cache.json`（不含 `updatedAt`，无变化时保持幂等），
+   * 与图表一并提交。
+   */
+  cache: boolean // default false
+  /**
    * Whether the repo owner's avatar is needed as an inline chart logo. Only the
    * SVG families use it, so `json` output can skip the extra request.
    *
@@ -112,6 +125,27 @@ function isTheme(value: string): value is ChartTheme {
  */
 function isOutputFormat(value: string): value is OutputFormat {
   return (OUTPUT_FORMATS as readonly string[]).includes(value)
+}
+
+/**
+ * Parses a `true`/`false` action input (case- and whitespace-insensitive,
+ * defaulting to `false`). Empty values are tolerated so boolean inputs stay
+ * optional.
+ *
+ * 解析 `true`/`false` 的动作输入（大小写与空白不敏感，默认 `false`）。
+ * 空值被容忍，因此布尔输入保持可选。
+ *
+ * @param key - Input key (without the `INPUT_` prefix) / 输入键名（不含 `INPUT_` 前缀）
+ * @returns True when the input parses to `true` / 输入解析为 `true` 时返回真
+ * @throws {Error} When the value is neither `true` nor `false` / 当值既非 `true` 也非 `false` 时抛出
+ */
+function parseBooleanInput(key: string): boolean {
+  const raw = getInput(key)
+  const value = raw.trim().toLowerCase()
+  if (value && value !== 'true' && value !== 'false') {
+    throw new Error(`${key} "${raw}" is invalid; use true or false`)
+  }
+  return value === 'true'
 }
 
 /**
@@ -177,12 +211,9 @@ export function parseInputs(): ActionConfig {
     throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, both, or json`)
   }
 
-  const rawRadar = getInput('radar')
-  const radarValue = rawRadar.trim().toLowerCase()
-  if (radarValue && radarValue !== 'true' && radarValue !== 'false') {
-    throw new Error(`radar "${rawRadar}" is invalid; use true or false`)
-  }
-  const radar = radarValue === 'true'
+  const radar = parseBooleanInput('radar')
+
+  const cache = parseBooleanInput('cache')
 
   const rawWidth = getInput('svg-width') || '960'
   const svgWidth = Number(rawWidth)
@@ -219,6 +250,7 @@ export function parseInputs(): ActionConfig {
     svgWidth,
     themes,
     radar,
+    cache,
     includeLogo: outputFormat !== 'json',
   }
 }
@@ -298,6 +330,27 @@ export function getChartFilePaths(config: ActionConfig): ChartFileOutput[] {
  */
 export function getJsonFileName(config: ActionConfig): string {
   return config.outputFilename.replace(/\.svg$/i, '.json')
+}
+
+/**
+ * Derives the incremental-fetch cache file name by swapping the extension of
+ * `output-filename` for `.cache.json`. The cache holds every repo's records in
+ * one theme-agnostic file, so it never derives `-light`/`-dark` variants.
+ *
+ * 通过替换 `output-filename` 的扩展名为 `.cache.json` 派生增量抓取缓存文件名。
+ * 缓存将所有仓库的记录聚合到一个与主题无关的文件中，因此不派生
+ * `-light`/`-dark` 变体。
+ *
+ * @param config - Parsed action inputs / 解析后的动作输入
+ * @returns The cache file name / 缓存文件名
+ * @example
+ * getCacheFileName({ ...outputFilename: 'star-history.svg' })
+ * // 'star-history.cache.json'
+ */
+export function getCacheFileName(config: ActionConfig): string {
+  const extIndex = config.outputFilename.lastIndexOf('.')
+  const stem = extIndex > 0 ? config.outputFilename.slice(0, extIndex) : config.outputFilename
+  return `${stem}.cache.json`
 }
 
 /**

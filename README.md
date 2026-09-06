@@ -35,16 +35,17 @@ jobs:
 
 <!-- markdownlint-disable MD060 -->
 
-| Name               | Required | Default                    | Description                                                                                                                                         |
-| ------------------ | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repo`             | No       | `${{ github.repository }}` | Repository to chart, e.g. `pengzhanbo/star-history-action`. Comma/space separated (e.g. `a/repo1, b/repo2`) to compare multiple repos in one chart. |
-| `token`            | No       | `${{ github.token }}`      | GitHub token with read access to the target repo. Use a PAT for private or GHES targets.                                                            |
-| `output-directory` | No       | `assets`                   | Directory to write the chart into, relative to the workspace root.                                                                                  |
-| `output-filename`  | No       | `star-history.svg`         | Output file name. Must end with `.svg`. When both themes are configured, `-light`/`-dark` is appended before the extension.                         |
-| `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                                                   |
-| `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                                                |
-| `output-format`    | No       | `svg`                      | Output file format: `svg` (default), `png` (rasterized from the SVG), `both`, or `json` (structured record data instead of charts).                 |
-| `radar`            | No       | `false`                    | Also render a per-repo radar SVG chart of repo health metrics (stars, new stars, pushes, contributors, issues closed, forks), each scored 0–99.     |
+| Name               | Required | Default                    | Description                                                                                                                                                           |
+| ------------------ | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo`             | No       | `${{ github.repository }}` | Repository to chart, e.g. `pengzhanbo/star-history-action`. Comma/space separated (e.g. `a/repo1, b/repo2`) to compare multiple repos in one chart.                   |
+| `token`            | No       | `${{ github.token }}`      | GitHub token with read access to the target repo. Use a PAT for private or GHES targets.                                                                              |
+| `output-directory` | No       | `assets`                   | Directory to write the chart into, relative to the workspace root.                                                                                                    |
+| `output-filename`  | No       | `star-history.svg`         | Output file name. Must end with `.svg`. When both themes are configured, `-light`/`-dark` is appended before the extension.                                           |
+| `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                                                                     |
+| `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                                                                  |
+| `output-format`    | No       | `svg`                      | Output file format: `svg` (default), `png` (rasterized from the SVG), `both`, or `json` (structured record data instead of charts).                                   |
+| `radar`            | No       | `false`                    | Also render a per-repo radar SVG chart of repo health metrics (stars, new stars, pushes, contributors, issues closed, forks), each scored 0–99.                       |
+| `cache`            | No       | `false`                    | Incremental fetch: read the previous run's `<stem>.cache.json` as a baseline and only fetch stargazers added since, slashing API quota on repos with large histories. |
 
 <!-- markdownlint-enable MD060 -->
 
@@ -59,6 +60,16 @@ jobs:
   Repositories whose history fits within that budget (≈1,500 stars) get an
   exact per-day series; larger repositories are sampled at evenly spaced
   boundary points (each within ±100 stars of the real count).
+- **Incremental fetch**: with `cache: true`, the previous run's
+  `<stem>.cache.json` (committed alongside the charts, containing the same
+  `{ date, stars }` records) becomes the baseline. Subsequent runs walk only
+  the newest stargazers pages until they dip below the baseline date — a
+  handful of requests instead of the full history — and merge the increment
+  onto the baseline. This is most effective for repos with 1,500+ stars: the
+  per-run request count stays flat as the history grows. A fresh/absent
+  baseline, an oldest-first GitHub instance, or an increment that outgrows the
+  budget degrades gracefully to a full fetch. Without new stargazers the cache
+  bytes are unchanged, so reruns stay idempotent.
 - **Rendering**: a hand-drawn xkcd-style line chart, with the xkcd font
   embedded inline so the SVG renders standalone anywhere.
 - **Commit & push**: the chart is committed as `github-actions[bot]` and pushed
