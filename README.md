@@ -43,7 +43,7 @@ jobs:
 | `output-filename`  | No       | `star-history.svg`         | Output file name. Must end with `.svg`. When both themes are configured, `-light`/`-dark` is appended before the extension.                         |
 | `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                                                   |
 | `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                                                |
-| `output-format`    | No       | `svg`                      | Output file format: `svg` (default), `png` (rasterized from the SVG), or `both`.                                                                    |
+| `output-format`    | No       | `svg`                      | Output file format: `svg` (default), `png` (rasterized from the SVG), `both`, or `json` (structured record data instead of charts).                 |
 | `radar`            | No       | `false`                    | Also render a per-repo radar SVG chart of repo health metrics (stars, new stars, pushes, contributors, issues closed, forks), each scored 0–99.     |
 
 <!-- markdownlint-enable MD060 -->
@@ -85,6 +85,17 @@ jobs:
   `output-format` rules as the history chart: with `png`/`both` a PNG twin is
   rasterized per theme/repo at the radar's native 400×400 size, and both the
   SVGs and PNGs are included in the same commit as the history chart.
+- **JSON export**: with `output-format: json`, no charts are rendered; instead
+  the fetched records are written as `star-history.json` (the `output-filename`
+  stem with a `.json` extension) as `{ updatedAt, repos: [{ repo, records,
+radar? }] }` — `records` is the ascending `{ date, stars }` series and
+  `radar` holds the 0–99 scores when `radar: true`. The JSON is theme-agnostic
+  (no `-light`/`-dark` variants) and holds every repo in one file, ready for
+  downstream tooling (badges, custom frontends, archives).
+- **Partial success**: when several repos are compared, a repo that fails to
+  fetch (404, rate limit, no stars) is skipped with a warning instead of
+  failing the whole run — the survivors still chart and commit. The run only
+  fails when every repo fails.
 
 ## Embedding the chart in your README
 

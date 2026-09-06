@@ -1,6 +1,11 @@
 import type { ActionConfig } from '../src/services/config.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getChartFilePaths, getRadarFilePaths, getRadarFileName } from '../src/services/config.js'
+import {
+  getChartFilePaths,
+  getJsonFileName,
+  getRadarFilePaths,
+  getRadarFileName,
+} from '../src/services/config.js'
 
 // env.js reads process.env at module evaluation, so parseInputs scenarios
 // re-import the module after stubbing env vars.
@@ -38,6 +43,7 @@ describe('parseInputs', () => {
       svgWidth: 960,
       themes: ['light'],
       radar: false,
+      includeLogo: true,
     })
   })
 
@@ -163,8 +169,17 @@ describe('parseInputs', () => {
       const parseInputs = await loadParseInputs()
 
       expect(parseInputs().outputFormat).toBe(format.trim().toLowerCase())
+      expect(parseInputs().includeLogo).toBe(true)
     },
   )
+
+  it('accepts output-format json (lowercased and trimmed)', async () => {
+    stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': ' JSON ' })
+    const parseInputs = await loadParseInputs()
+
+    expect(parseInputs().outputFormat).toBe('json')
+    expect(parseInputs().includeLogo).toBe(false)
+  })
 
   it('throws on an unknown output-format', async () => {
     stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': 'webp' })
@@ -205,6 +220,7 @@ describe('getChartFilePaths', () => {
     svgWidth: 960,
     themes: ['light'],
     radar: false,
+    includeLogo: true,
   }
 
   it('uses the output-filename as-is for a single theme', () => {
@@ -251,6 +267,42 @@ describe('getChartFilePaths', () => {
       { theme: 'dark', svgFile: 'star-history-dark.svg', pngFile: 'star-history-dark.png' },
     ])
   })
+
+  it('maps output-format json to no chart files', () => {
+    expect(
+      getChartFilePaths({
+        ...baseConfig,
+        outputFormat: 'json',
+        themes: ['light', 'dark'],
+      }),
+    ).toEqual([])
+  })
+})
+
+describe('getJsonFileName', () => {
+  const baseConfig: ActionConfig = {
+    repos: ['owner/repo'],
+    token: 't',
+    outputDirectory: 'assets',
+    outputFilename: 'star-history.svg',
+    outputFormat: 'json',
+    svgWidth: 960,
+    themes: ['light'],
+    radar: false,
+    includeLogo: false,
+  }
+
+  it('swaps the .svg extension for .json', () => {
+    expect(getJsonFileName(baseConfig)).toBe('star-history.json')
+  })
+
+  it('keeps the stem for an uppercase extension', () => {
+    expect(getJsonFileName({ ...baseConfig, outputFilename: 'chart.SVG' })).toBe('chart.json')
+  })
+
+  it('never derives theme variants (JSON is theme-agnostic)', () => {
+    expect(getJsonFileName({ ...baseConfig, themes: ['light', 'dark'] })).toBe('star-history.json')
+  })
 })
 
 describe('getRadarFileName', () => {
@@ -263,6 +315,7 @@ describe('getRadarFileName', () => {
     svgWidth: 960,
     themes: ['light'],
     radar: true,
+    includeLogo: true,
   }
 
   it('derives `<stem>-radar.svg` for a single repo', () => {
@@ -312,6 +365,7 @@ describe('getRadarFilePaths', () => {
     svgWidth: 960,
     themes: ['light'],
     radar: true,
+    includeLogo: true,
   }
 
   it('maps a single theme to the plain radar SVG name', () => {

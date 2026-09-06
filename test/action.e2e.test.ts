@@ -349,4 +349,59 @@ describe('action end-to-end (mock GitHub API)', () => {
     expect(existsSync(join(workspace, 'assets/star-history-radar-owner-repo.svg'))).toBe(true)
     expect(existsSync(join(workspace, 'assets/star-history-radar-other-repo.svg'))).toBe(true)
   })
+
+  it('exports records as JSON (with radar scores) when output-format is json', async () => {
+    // A dedicated output-filename keeps this case isolated from the charts the
+    // earlier cases left in the shared workspace.
+    const result = await runAction({
+      'INPUT_OUTPUT-FORMAT': 'json',
+      'INPUT_RADAR': 'true',
+      'INPUT_REPO': 'owner/repo, other/repo',
+      'INPUT_OUTPUT-FILENAME': 'star-history-data.svg',
+    })
+    expect(result.stderr).toBe('')
+    expectSuccess(result)
+    expect(result.stdout).toContain('wrote assets/star-history-data.json')
+    // JSON mode writes data instead of charts, so no SVG is produced.
+    expect(result.stdout).not.toContain('wrote assets/star-history-data.svg')
+    expect(existsSync(join(workspace, 'assets/star-history-data.json'))).toBe(true)
+    expect(existsSync(join(workspace, 'assets/star-history-data.svg'))).toBe(false)
+
+    const data = JSON.parse(readFileSync(join(workspace, 'assets/star-history-data.json'), 'utf8'))
+    expect(data.updatedAt).toBeTypeOf('string')
+    expect(data.repos).toHaveLength(2)
+    const [ownerRepo, otherRepo] = data.repos as [
+      { repo: string; records: { date: string; stars: number }[]; radar: { stars: number } },
+      { repo: string; records: { date: string; stars: number }[]; radar: { stars: number } },
+    ]
+    expect(ownerRepo.repo).toBe('owner/repo')
+    expect(otherRepo.repo).toBe('other/repo')
+    // Records stay ascending by date, anchored at today with the final count.
+    expect(ownerRepo.records.length).toBeGreaterThan(0)
+    for (let i = 1; i < ownerRepo.records.length; i++) {
+      expect(ownerRepo.records[i]!.date >= ownerRepo.records[i - 1]!.date).toBe(true)
+    }
+    expect(ownerRepo.records.at(-1)!.stars).toBe(260)
+    // Radar scores ride along when the radar input is on.
+    expect(ownerRepo.radar).toBeDefined()
+    expect(ownerRepo.radar.stars).toBeTypeOf('number')
+  })
+
+  it('skips a failing repo and still charts the survivors', async () => {
+    const result = await runAction({
+      'INPUT_REPO': 'owner/repo, nope/repo',
+      'INPUT_THEME': 'light',
+      'INPUT_OUTPUT-FILENAME': 'partial.svg',
+    })
+    expectSuccess(result)
+    // The failed repo is reported as a warning (@actions/core commands are
+    // emitted on stdout), not a hard failure.
+    expect(result.stdout).toContain('::warning::skip nope/repo:')
+    expect(result.stdout).toContain('wrote assets/partial.svg')
+
+    const svg = readFileSync(join(workspace, 'assets/partial.svg'), 'utf8')
+    expect(svg.match(/class="xkcd-chart-xyline"/g)).toHaveLength(1)
+    expect(svg).toContain('owner/repo')
+    expect(svg).not.toContain('nope/repo')
+  })
 })

@@ -13,9 +13,13 @@ export type ChartTheme = (typeof THEMES)[number]
 /**
  * Output formats the action can write.
  *
+ * `json` exports the fetched records as structured data instead of charts.
+ *
  * 动作可输出的文件格式。
+ *
+ * `json` 将抓取的记录以结构化数据导出，而非图表。
  */
-export const OUTPUT_FORMATS = ['svg', 'png', 'both'] as const
+export const OUTPUT_FORMATS = ['svg', 'png', 'both', 'json'] as const
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number]
 
 /**
@@ -51,9 +55,11 @@ export interface ActionConfig {
    */
   outputFilename: string // default 'star-history.svg'
   /**
-   * File formats to write: `svg` (default), `png` (rasterized), or `both`.
+   * File formats to write: `svg` (default), `png` (rasterized), `both`, or
+   * `json` (structured record data instead of charts).
    *
-   * 要写入的文件格式：`svg`（默认）、`png`（栅格化）或 `both`（两者）。
+   * 要写入的文件格式：`svg`（默认）、`png`（栅格化）、`both`，或
+   * `json`（导出结构化记录数据而非图表）。
    */
   outputFormat: OutputFormat // default 'svg'
   /**
@@ -74,6 +80,14 @@ export interface ActionConfig {
    * 是否在 star history 之外再渲染每个仓库的雷达图 SVG。
    */
   radar: boolean // default false
+  /**
+   * Whether the repo owner's avatar is needed as an inline chart logo. Only the
+   * SVG families use it, so `json` output can skip the extra request.
+   *
+   * 是否需要仓库所有者的头像作为内联图表 logo。仅 SVG 图表家族需要它，
+   * 因此 `json` 输出可以跳过这个额外请求。
+   */
+  includeLogo: boolean // = outputFormat !== 'json'
 }
 
 /**
@@ -94,7 +108,7 @@ function isTheme(value: string): value is ChartTheme {
  * 将字符串收窄为已知输出格式的类型守卫。
  *
  * @param value - Format string to validate / 待校验的格式字符串
- * @returns True when the value is `svg`, `png`, or `both` / 当值为 `svg`、`png` 或 `both` 时为真
+ * @returns True when the value is `svg`, `png`, `both`, or `json` / 当值为 `svg`、`png`、`both` 或 `json` 时为真
  */
 function isOutputFormat(value: string): value is OutputFormat {
   return (OUTPUT_FORMATS as readonly string[]).includes(value)
@@ -160,7 +174,7 @@ export function parseInputs(): ActionConfig {
   const rawFormat = getInput('output-format') || 'svg'
   const outputFormat = rawFormat.trim().toLowerCase()
   if (!isOutputFormat(outputFormat)) {
-    throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, or both`)
+    throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, both, or json`)
   }
 
   const rawRadar = getInput('radar')
@@ -196,7 +210,17 @@ export function parseInputs(): ActionConfig {
     themes.push('light')
   }
 
-  return { repos, token, outputDirectory, outputFilename, outputFormat, svgWidth, themes, radar }
+  return {
+    repos,
+    token,
+    outputDirectory,
+    outputFilename,
+    outputFormat,
+    svgWidth,
+    themes,
+    radar,
+    includeLogo: outputFormat !== 'json',
+  }
 }
 
 /**
@@ -223,14 +247,19 @@ export interface ChartFileOutput {
  * @param config - Parsed action inputs / 解析后的动作输入
  * @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
  *   modes, `.png`) file names: single-theme runs keep the input filename;
- *   multi-theme runs derive `-light`/`-dark` variants /
+ *   multi-theme runs derive `-light`/`-dark` variants. `json` output writes no
+ *   charts, so it maps to an empty list. /
  *   每个主题一个条目，包含派生的 `.svg`（以及 `png`/`both` 模式下的 `.png`）
- *   文件名：单主题运行保留输入文件名；多主题运行派生 `-light`/`-dark` 变体
+ *   文件名：单主题运行保留输入文件名；多主题运行派生 `-light`/`-dark` 变体。
+ *   `json` 输出不写图表，映射为空列表。
  * @example
  * getChartFilePaths({ ...themes: ['light', 'dark'], outputFilename: 'chart.svg' })
  * // [{ theme: 'light', svgFile: 'chart-light.svg' }, { theme: 'dark', svgFile: 'chart-dark.svg' }]
  */
 export function getChartFilePaths(config: ActionConfig): ChartFileOutput[] {
+  if (config.outputFormat === 'json') {
+    return []
+  }
   const themeFiles =
     config.themes.length === 1
       ? [{ theme: config.themes[0]!, svgFile: config.outputFilename }]
@@ -251,6 +280,24 @@ export function getChartFilePaths(config: ActionConfig): ChartFileOutput[] {
     }
     return output
   })
+}
+
+/**
+ * Derives the JSON data export file name by swapping the `.svg` extension of
+ * `output-filename`. The JSON holds every repo's records, so it is theme-agnostic
+ * and never derives `-light`/`-dark` variants.
+ *
+ * 通过替换 `output-filename` 的 `.svg` 扩展名派生 JSON 数据导出文件名。
+ * JSON 包含所有仓库的记录，与主题无关，因此不派生 `-light`/`-dark` 变体。
+ *
+ * @param config - Parsed action inputs / 解析后的动作输入
+ * @returns The JSON file name / JSON 文件名
+ * @example
+ * getJsonFileName({ ...outputFilename: 'star-history.svg' })
+ * // 'star-history.json'
+ */
+export function getJsonFileName(config: ActionConfig): string {
+  return config.outputFilename.replace(/\.svg$/i, '.json')
 }
 
 /**

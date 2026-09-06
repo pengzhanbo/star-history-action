@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { getInput, info, setFailed } from "@actions/core";
+import { getInput, info, setFailed, warning } from "@actions/core";
 import { readFileSync } from "node:fs";
 import subsetFont from "subset-font";
 import { Resvg } from "@resvg/resvg-js";
@@ -268,11 +268,6 @@ async function renderRadarSvg(attributes, options = {}) {
 	parts.push(`</svg>`);
 	return parts.join("");
 }
-//#endregion
-//#region src/common/constants.ts
-const REQUEST_TIMEOUT_MS = 15e3;
-const REPO_INFO_ACCEPT = "application/vnd.github+json";
-const STARGAZERS_ACCEPT = "application/vnd.github.v3.star+json";
 //#endregion
 //#region src/common/output.ts
 /**
@@ -1006,41 +1001,6 @@ async function renderStarHistorySvg(input) {
 function fixJsdomSvgCasing(svgContent) {
 	return svgContent.replace(/feturbulence/g, "feTurbulence").replace(/fedisplacementmap/g, "feDisplacementMap").replace(/filterunits/g, "filterUnits").replace(/basefrequency/g, "baseFrequency").replace(/xchannelselector/g, "xChannelSelector").replace(/ychannelselector/g, "yChannelSelector").replace(/\btextlength=/g, "textLength=").replace(/\blengthadjust=/g, "lengthAdjust=");
 }
-/**
-* Optimizes an image buffer: scales it down to `AVATAR_SIZE` and compresses
-* it with quality loss (jpeg/webp/avif) or palette quantization (png) so the
-* base64-embedded logo stays small. SVG inputs and undecodable buffers are
-* returned untouched.
-*
-* 优化图像缓冲区：将图像缩放到 `AVATAR_SIZE`，并以有损方式压缩
-* （jpeg/webp/avif）或调色板量化（png），使 base64 内嵌的 logo 保持较小。
-* SVG 输入与无法解码的缓冲区原样返回。
-*
-* @param image - Image buffer to optimize / 要优化的图像缓冲区
-* @returns The optimized image buffer / 优化后的图像缓冲区
-* @example
-* ```ts
-* const optimized = await optimizeImage(buf)
-* ```
-*/
-async function optimizeImage(image) {
-	try {
-		const img = sharp(image);
-		const { format } = await img.metadata();
-		if (!format || format === "svg") return image;
-		const resized = img.resize({
-			width: 128,
-			height: 128,
-			fit: "cover"
-		});
-		return await (format === "jpeg" ? resized.jpeg({ quality: 70 }) : format === "png" ? resized.png({
-			palette: true,
-			quality: 70
-		}) : format === "webp" ? resized.webp({ quality: 70 }) : format === "heif" ? resized.avif({ quality: 70 }) : resized).toBuffer();
-	} catch {
-		return image;
-	}
-}
 //#endregion
 //#region src/services/env.ts
 /**
@@ -1087,6 +1047,265 @@ const GITHUB_REF_NAME = process.env["GITHUB_REF_NAME"] ?? "";
 * runner 上检出仓库的绝对路径；本地运行时为空字符串。
 */
 const GITHUB_WORKSPACE = process.env["GITHUB_WORKSPACE"] ?? "";
+//#endregion
+//#region src/services/config.ts
+/**
+* Chart themes supported by the action.
+*
+* 动作支持的图表主题。
+*/
+const THEMES = ["light", "dark"];
+/**
+* Output formats the action can write.
+*
+* `json` exports the fetched records as structured data instead of charts.
+*
+* 动作可输出的文件格式。
+*
+* `json` 将抓取的记录以结构化数据导出，而非图表。
+*/
+const OUTPUT_FORMATS = [
+	"svg",
+	"png",
+	"both",
+	"json"
+];
+/**
+* Type guard narrowing a string to a known chart theme.
+*
+* 将字符串收窄为已知图表主题的类型守卫。
+*
+* @param value - Theme string to validate / 待校验的主题字符串
+* @returns True when the value is `light` or `dark` / 当值为 `light` 或 `dark` 时为真
+*/
+function isTheme(value) {
+	return THEMES.includes(value);
+}
+/**
+* Type guard narrowing a string to a known output format.
+*
+* 将字符串收窄为已知输出格式的类型守卫。
+*
+* @param value - Format string to validate / 待校验的格式字符串
+* @returns True when the value is `svg`, `png`, `both`, or `json` / 当值为 `svg`、`png`、`both` 或 `json` 时为真
+*/
+function isOutputFormat(value) {
+	return OUTPUT_FORMATS.includes(value);
+}
+/**
+* Reads and validates all action inputs from the runner environment.
+*
+* 从 runner 环境中读取并校验全部动作输入。
+*
+* @returns The parsed and validated configuration / 解析并校验后的配置
+* @throws {Error} When a required input is missing or a value is invalid / 当必填输入缺失或取值非法时抛出错误
+* @example
+* // On a GitHub runner, inputs arrive as INPUT_* env vars.
+* const config = parseInputs()
+*/
+function parseInputs() {
+	const repos = [];
+	const rawRepo = getInput("repo") || GITHUB_REPOSITORY;
+	for (const value of rawRepo.split(/[,，\s]+/)) {
+		const repo = value.trim();
+		if (!repo) continue;
+		if (!repos.includes(repo)) repos.push(repo);
+	}
+	if (repos.length === 0) throw new Error("repo input is required");
+	const token = getInput("token");
+	if (!token) throw new Error("token input is required");
+	const outputDirectory = getInput("output-directory") || "assets";
+	if (isAbsolute(outputDirectory)) throw new Error(`output-directory must be a relative path, got "${outputDirectory}"`);
+	const outputFilename = getInput("output-filename") || "star-history.svg";
+	if (outputFilename.length === 0 || outputFilename.includes("/") || outputFilename.includes("\\")) throw new Error(`output-filename must be a file name without path separators, got "${outputFilename}"`);
+	if (!/\.svg$/i.test(outputFilename)) throw new Error(`output-filename must end with .svg, got "${outputFilename}"`);
+	const rawFormat = getInput("output-format") || "svg";
+	const outputFormat = rawFormat.trim().toLowerCase();
+	if (!isOutputFormat(outputFormat)) throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, both, or json`);
+	const rawRadar = getInput("radar");
+	const radarValue = rawRadar.trim().toLowerCase();
+	if (radarValue && radarValue !== "true" && radarValue !== "false") throw new Error(`radar "${rawRadar}" is invalid; use true or false`);
+	const radar = radarValue === "true";
+	const rawWidth = getInput("svg-width") || "960";
+	const svgWidth = Number(rawWidth);
+	if (!Number.isInteger(svgWidth) || svgWidth < 1) throw new Error(`svg-width must be a positive integer, got "${rawWidth}"`);
+	const themes = [];
+	const rawTheme = getInput("theme");
+	if (rawTheme) for (const value of rawTheme.split(/[,，\s]+/)) {
+		const theme = value.trim().toLowerCase();
+		if (!theme) continue;
+		if (!isTheme(theme)) throw new Error(`theme "${value}" is invalid; use light, dark, or light, dark`);
+		if (!themes.includes(theme)) themes.push(theme);
+	}
+	if (themes.length === 0) themes.push("light");
+	return {
+		repos,
+		token,
+		outputDirectory,
+		outputFilename,
+		outputFormat,
+		svgWidth,
+		themes,
+		radar,
+		includeLogo: outputFormat !== "json"
+	};
+}
+/**
+* Maps the requested themes to concrete chart file names.
+*
+* 将请求的主题映射为具体的图表文件名。
+*
+* @param config - Parsed action inputs / 解析后的动作输入
+* @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
+*   modes, `.png`) file names: single-theme runs keep the input filename;
+*   multi-theme runs derive `-light`/`-dark` variants. `json` output writes no
+*   charts, so it maps to an empty list. /
+*   每个主题一个条目，包含派生的 `.svg`（以及 `png`/`both` 模式下的 `.png`）
+*   文件名：单主题运行保留输入文件名；多主题运行派生 `-light`/`-dark` 变体。
+*   `json` 输出不写图表，映射为空列表。
+* @example
+* getChartFilePaths({ ...themes: ['light', 'dark'], outputFilename: 'chart.svg' })
+* // [{ theme: 'light', svgFile: 'chart-light.svg' }, { theme: 'dark', svgFile: 'chart-dark.svg' }]
+*/
+function getChartFilePaths(config) {
+	if (config.outputFormat === "json") return [];
+	return (config.themes.length === 1 ? [{
+		theme: config.themes[0],
+		svgFile: config.outputFilename
+	}] : (() => {
+		const i = config.outputFilename.lastIndexOf(".");
+		const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
+		const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename;
+		return [{
+			theme: "light",
+			svgFile: `${stem}-light${ext}`
+		}, {
+			theme: "dark",
+			svgFile: `${stem}-dark${ext}`
+		}];
+	})()).map(({ theme, svgFile }) => {
+		const output = {
+			theme,
+			svgFile
+		};
+		if (config.outputFormat !== "svg") output.pngFile = svgFile.replace(/\.svg$/i, ".png");
+		return output;
+	});
+}
+/**
+* Derives the JSON data export file name by swapping the `.svg` extension of
+* `output-filename`. The JSON holds every repo's records, so it is theme-agnostic
+* and never derives `-light`/`-dark` variants.
+*
+* 通过替换 `output-filename` 的 `.svg` 扩展名派生 JSON 数据导出文件名。
+* JSON 包含所有仓库的记录，与主题无关，因此不派生 `-light`/`-dark` 变体。
+*
+* @param config - Parsed action inputs / 解析后的动作输入
+* @returns The JSON file name / JSON 文件名
+* @example
+* getJsonFileName({ ...outputFilename: 'star-history.svg' })
+* // 'star-history.json'
+*/
+function getJsonFileName(config) {
+	return config.outputFilename.replace(/\.svg$/i, ".json");
+}
+/**
+* Derives the radar chart file name for one repo (and, on multi-theme runs, one
+* theme). Single-repo runs keep a plain `<stem>-radar.svg`; multi-repo runs
+* suffix the repo (`/` → `-`) so each repo gets its own file; when both themes
+* are configured, `-light`/`-dark` is inserted before the extension (mirroring
+* {@link getChartFilePaths}).
+*
+* 为单个仓库（多主题运行时为单个主题）派生雷达图文件名。单仓库运行保留
+* `<stem>-radar.svg`；多仓库运行追加仓库名（`/` 替换为 `-`），使每个仓库
+* 各自成文件；配置双主题时在扩展名前插入 `-light`/`-dark`（与
+* {@link getChartFilePaths} 一致）。
+*
+* @param config - Parsed action inputs / 解析后的动作输入
+* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+* @param theme - Theme being rendered; only honored when both themes are
+*   configured / 正在渲染的主题；仅当配置双主题时生效
+* @returns The radar chart file name / 雷达图文件名
+* @example
+* getRadarFileName(
+*   { outputFilename: 'star-history.svg', repos: ['a/b', 'c/d'], themes: ['light', 'dark'] },
+*   'a/b',
+*   'dark',
+* )
+* // 'star-history-radar-a-b-dark.svg'
+*/
+function getRadarFileName(config, repo, theme) {
+	const i = config.outputFilename.lastIndexOf(".");
+	const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
+	return `${i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename}-radar${config.repos.length > 1 ? `-${repo.replaceAll("/", "-")}` : ""}${theme && config.themes.length > 1 ? `-${theme}` : ""}${ext}`;
+}
+/**
+* Maps the requested themes to concrete radar chart file names for one repo,
+* reusing the same naming rules as {@link getChartFilePaths}: theme suffixes
+* for multi-theme runs, and `.png` derivation for `png`/`both` output formats.
+*
+* 将请求的主题映射为某个仓库的雷达图具体文件名，复用
+* {@link getChartFilePaths} 的命名规则：多主题运行追加主题后缀，`png`/`both`
+* 输出格式派生 `.png` 文件名。
+*
+* @param config - Parsed action inputs / 解析后的动作输入
+* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
+* @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
+*   modes, `.png`) radar file names / 每个主题一个条目，包含派生的 `.svg`
+*   （以及 `png`/`both` 模式下的 `.png`）雷达图文件名
+* @example
+* getRadarFilePaths({ ...themes: ['light', 'dark'], outputFormat: 'both', repos: ['a/b'] }, 'a/b')
+* // [
+* //   { theme: 'light', svgFile: 'star-history-radar-light.svg', pngFile: 'star-history-radar-light.png' },
+* //   { theme: 'dark', svgFile: 'star-history-radar-dark.svg', pngFile: 'star-history-radar-dark.png' },
+* // ]
+*/
+function getRadarFilePaths(config, repo) {
+	return getChartFilePaths({
+		...config,
+		outputFilename: getRadarFileName(config, repo)
+	});
+}
+//#endregion
+//#region src/common/constants.ts
+const REQUEST_TIMEOUT_MS = 15e3;
+const REPO_INFO_ACCEPT = "application/vnd.github+json";
+const STARGAZERS_ACCEPT = "application/vnd.github.v3.star+json";
+/**
+* Optimizes an image buffer: scales it down to `AVATAR_SIZE` and compresses
+* it with quality loss (jpeg/webp/avif) or palette quantization (png) so the
+* base64-embedded logo stays small. SVG inputs and undecodable buffers are
+* returned untouched.
+*
+* 优化图像缓冲区：将图像缩放到 `AVATAR_SIZE`，并以有损方式压缩
+* （jpeg/webp/avif）或调色板量化（png），使 base64 内嵌的 logo 保持较小。
+* SVG 输入与无法解码的缓冲区原样返回。
+*
+* @param image - Image buffer to optimize / 要优化的图像缓冲区
+* @returns The optimized image buffer / 优化后的图像缓冲区
+* @example
+* ```ts
+* const optimized = await optimizeImage(buf)
+* ```
+*/
+async function optimizeImage(image) {
+	try {
+		const img = sharp(image);
+		const { format } = await img.metadata();
+		if (!format || format === "svg") return image;
+		const resized = img.resize({
+			width: 128,
+			height: 128,
+			fit: "cover"
+		});
+		return await (format === "jpeg" ? resized.jpeg({ quality: 70 }) : format === "png" ? resized.png({
+			palette: true,
+			quality: 70
+		}) : format === "webp" ? resized.webp({ quality: 70 }) : format === "heif" ? resized.avif({ quality: 70 }) : resized).toBuffer();
+	} catch {
+		return image;
+	}
+}
 //#endregion
 //#region src/services/utils.ts
 /**
@@ -1327,197 +1546,40 @@ async function toBase64(url) {
 	return `data:${type};base64,${Buffer.from(await optimizeImage(buf)).toString("base64")}`;
 }
 //#endregion
-//#region src/services/config.ts
+//#region src/services/fetch.ts
 /**
-* Chart themes supported by the action.
+* Fetches star records (+ the owner avatar when the SVG families need it) for
+* every repo in parallel; each repo keeps its own request budget so comparing
+* repos never starves one another. A single failing repo (404, rate limit,
+* empty history) only skips that repo: the others still chart, and the failure
+* is reported as a warning. Only when every repo fails does the run fail —
+* there is nothing left to write.
 *
-* 动作支持的图表主题。
-*/
-const THEMES = ["light", "dark"];
-/**
-* Output formats the action can write.
-*
-* 动作可输出的文件格式。
-*/
-const OUTPUT_FORMATS = [
-	"svg",
-	"png",
-	"both"
-];
-/**
-* Type guard narrowing a string to a known chart theme.
-*
-* 将字符串收窄为已知图表主题的类型守卫。
-*
-* @param value - Theme string to validate / 待校验的主题字符串
-* @returns True when the value is `light` or `dark` / 当值为 `light` 或 `dark` 时为真
-*/
-function isTheme(value) {
-	return THEMES.includes(value);
-}
-/**
-* Type guard narrowing a string to a known output format.
-*
-* 将字符串收窄为已知输出格式的类型守卫。
-*
-* @param value - Format string to validate / 待校验的格式字符串
-* @returns True when the value is `svg`, `png`, or `both` / 当值为 `svg`、`png` 或 `both` 时为真
-*/
-function isOutputFormat(value) {
-	return OUTPUT_FORMATS.includes(value);
-}
-/**
-* Reads and validates all action inputs from the runner environment.
-*
-* 从 runner 环境中读取并校验全部动作输入。
-*
-* @returns The parsed and validated configuration / 解析并校验后的配置
-* @throws {Error} When a required input is missing or a value is invalid / 当必填输入缺失或取值非法时抛出错误
-* @example
-* // On a GitHub runner, inputs arrive as INPUT_* env vars.
-* const config = parseInputs()
-*/
-function parseInputs() {
-	const repos = [];
-	const rawRepo = getInput("repo") || GITHUB_REPOSITORY;
-	for (const value of rawRepo.split(/[,，\s]+/)) {
-		const repo = value.trim();
-		if (!repo) continue;
-		if (!repos.includes(repo)) repos.push(repo);
-	}
-	if (repos.length === 0) throw new Error("repo input is required");
-	const token = getInput("token");
-	if (!token) throw new Error("token input is required");
-	const outputDirectory = getInput("output-directory") || "assets";
-	if (isAbsolute(outputDirectory)) throw new Error(`output-directory must be a relative path, got "${outputDirectory}"`);
-	const outputFilename = getInput("output-filename") || "star-history.svg";
-	if (outputFilename.length === 0 || outputFilename.includes("/") || outputFilename.includes("\\")) throw new Error(`output-filename must be a file name without path separators, got "${outputFilename}"`);
-	if (!/\.svg$/i.test(outputFilename)) throw new Error(`output-filename must end with .svg, got "${outputFilename}"`);
-	const rawFormat = getInput("output-format") || "svg";
-	const outputFormat = rawFormat.trim().toLowerCase();
-	if (!isOutputFormat(outputFormat)) throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, or both`);
-	const rawRadar = getInput("radar");
-	const radarValue = rawRadar.trim().toLowerCase();
-	if (radarValue && radarValue !== "true" && radarValue !== "false") throw new Error(`radar "${rawRadar}" is invalid; use true or false`);
-	const radar = radarValue === "true";
-	const rawWidth = getInput("svg-width") || "960";
-	const svgWidth = Number(rawWidth);
-	if (!Number.isInteger(svgWidth) || svgWidth < 1) throw new Error(`svg-width must be a positive integer, got "${rawWidth}"`);
-	const themes = [];
-	const rawTheme = getInput("theme");
-	if (rawTheme) for (const value of rawTheme.split(/[,，\s]+/)) {
-		const theme = value.trim().toLowerCase();
-		if (!theme) continue;
-		if (!isTheme(theme)) throw new Error(`theme "${value}" is invalid; use light, dark, or light, dark`);
-		if (!themes.includes(theme)) themes.push(theme);
-	}
-	if (themes.length === 0) themes.push("light");
-	return {
-		repos,
-		token,
-		outputDirectory,
-		outputFilename,
-		outputFormat,
-		svgWidth,
-		themes,
-		radar
-	};
-}
-/**
-* Maps the requested themes to concrete chart file names.
-*
-* 将请求的主题映射为具体的图表文件名。
+* 并行抓取每个仓库的 star 记录（SVG 图表家族需要时还包括所有者头像）；
+* 每个仓库独立使用请求预算，互不挤占。单个仓库失败（404、限流、无 star）
+* 仅跳过该仓库：其余仓库照常出图，失败以 warning 记录。仅当全部仓库都
+* 失败时才失败——此时已无任何可写内容。
 *
 * @param config - Parsed action inputs / 解析后的动作输入
-* @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
-*   modes, `.png`) file names: single-theme runs keep the input filename;
-*   multi-theme runs derive `-light`/`-dark` variants /
-*   每个主题一个条目，包含派生的 `.svg`（以及 `png`/`both` 模式下的 `.png`）
-*   文件名：单主题运行保留输入文件名；多主题运行派生 `-light`/`-dark` 变体
-* @example
-* getChartFilePaths({ ...themes: ['light', 'dark'], outputFilename: 'chart.svg' })
-* // [{ theme: 'light', svgFile: 'chart-light.svg' }, { theme: 'dark', svgFile: 'chart-dark.svg' }]
+* @returns Datasets for the repos that fetched successfully / 抓取成功的仓库数据集
+* @throws {Error} When every repo fails to fetch / 当所有仓库都抓取失败时抛出
 */
-function getChartFilePaths(config) {
-	return (config.themes.length === 1 ? [{
-		theme: config.themes[0],
-		svgFile: config.outputFilename
-	}] : (() => {
-		const i = config.outputFilename.lastIndexOf(".");
-		const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
-		const stem = i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename;
-		return [{
-			theme: "light",
-			svgFile: `${stem}-light${ext}`
-		}, {
-			theme: "dark",
-			svgFile: `${stem}-dark${ext}`
-		}];
-	})()).map(({ theme, svgFile }) => {
-		const output = {
-			theme,
-			svgFile
-		};
-		if (config.outputFormat !== "svg") output.pngFile = svgFile.replace(/\.svg$/i, ".png");
-		return output;
+async function fetchDatasets(config) {
+	const settled = await Promise.allSettled(config.repos.map(async (repo) => ({
+		repo,
+		records: await getRepoStarRecords(repo, config.token, 15),
+		logo: config.includeLogo ? await toBase64(await getRepoLogo(repo, config.token)).catch(() => "") : ""
+	})));
+	const datasets = [];
+	settled.forEach((result, i) => {
+		if (result.status === "fulfilled") datasets.push(result.value);
+		else {
+			const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+			warning(`skip ${config.repos[i]}: ${reason}`);
+		}
 	});
-}
-/**
-* Derives the radar chart file name for one repo (and, on multi-theme runs, one
-* theme). Single-repo runs keep a plain `<stem>-radar.svg`; multi-repo runs
-* suffix the repo (`/` → `-`) so each repo gets its own file; when both themes
-* are configured, `-light`/`-dark` is inserted before the extension (mirroring
-* {@link getChartFilePaths}).
-*
-* 为单个仓库（多主题运行时为单个主题）派生雷达图文件名。单仓库运行保留
-* `<stem>-radar.svg`；多仓库运行追加仓库名（`/` 替换为 `-`），使每个仓库
-* 各自成文件；配置双主题时在扩展名前插入 `-light`/`-dark`（与
-* {@link getChartFilePaths} 一致）。
-*
-* @param config - Parsed action inputs / 解析后的动作输入
-* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
-* @param theme - Theme being rendered; only honored when both themes are
-*   configured / 正在渲染的主题；仅当配置双主题时生效
-* @returns The radar chart file name / 雷达图文件名
-* @example
-* getRadarFileName(
-*   { outputFilename: 'star-history.svg', repos: ['a/b', 'c/d'], themes: ['light', 'dark'] },
-*   'a/b',
-*   'dark',
-* )
-* // 'star-history-radar-a-b-dark.svg'
-*/
-function getRadarFileName(config, repo, theme) {
-	const i = config.outputFilename.lastIndexOf(".");
-	const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
-	return `${i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename}-radar${config.repos.length > 1 ? `-${repo.replaceAll("/", "-")}` : ""}${theme && config.themes.length > 1 ? `-${theme}` : ""}${ext}`;
-}
-/**
-* Maps the requested themes to concrete radar chart file names for one repo,
-* reusing the same naming rules as {@link getChartFilePaths}: theme suffixes
-* for multi-theme runs, and `.png` derivation for `png`/`both` output formats.
-*
-* 将请求的主题映射为某个仓库的雷达图具体文件名，复用
-* {@link getChartFilePaths} 的命名规则：多主题运行追加主题后缀，`png`/`both`
-* 输出格式派生 `.png` 文件名。
-*
-* @param config - Parsed action inputs / 解析后的动作输入
-* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
-* @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
-*   modes, `.png`) radar file names / 每个主题一个条目，包含派生的 `.svg`
-*   （以及 `png`/`both` 模式下的 `.png`）雷达图文件名
-* @example
-* getRadarFilePaths({ ...themes: ['light', 'dark'], outputFormat: 'both', repos: ['a/b'] }, 'a/b')
-* // [
-* //   { theme: 'light', svgFile: 'star-history-radar-light.svg', pngFile: 'star-history-radar-light.png' },
-* //   { theme: 'dark', svgFile: 'star-history-radar-dark.svg', pngFile: 'star-history-radar-dark.png' },
-* // ]
-*/
-function getRadarFilePaths(config, repo) {
-	return getChartFilePaths({
-		...config,
-		outputFilename: getRadarFileName(config, repo)
-	});
+	if (datasets.length === 0) throw new Error("no repository data could be fetched; see warnings above for per-repo failures");
+	return datasets;
 }
 //#endregion
 //#region src/services/git.ts
@@ -1713,6 +1775,50 @@ async function getRepoRadarAttributes(repo, token, records) {
 	};
 }
 //#endregion
+//#region src/services/json-export.ts
+/**
+* Writes the JSON data export: every repo's records (plus radar scores when
+* `radar` is enabled) as structured data, and returns its workspace-relative
+* path for the commit file list. A radar fetch failure skips that repo's radar
+* block instead of failing the export.
+*
+* 写入 JSON 数据导出：将每个仓库的记录（开启 `radar` 时附带雷达分数）以
+* 结构化数据写出，并返回其工作区相对路径用于提交文件列表。雷达抓取失败
+* 仅跳过该仓库的 radar 数据块，不会使导出失败。
+*
+* @param config - Parsed action inputs / 解析后的动作输入
+* @param datasets - Successfully fetched datasets / 抓取成功的数据集
+* @param outDir - Output directory / 输出目录
+* @param workspace - GitHub workspace root / GitHub 工作区根
+* @returns Workspace-relative path of the written JSON file / 已写入 JSON 文件的工作区相对路径
+*/
+async function writeJsonExport(config, datasets, outDir, workspace) {
+	const repos = [];
+	for (const { repo, records } of datasets) {
+		const entry = {
+			repo,
+			records
+		};
+		if (config.radar) try {
+			entry.radar = await getRepoRadarAttributes(repo, config.token, records);
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			warning(`skip radar metrics for ${repo}: ${reason}`);
+		}
+		repos.push(entry);
+	}
+	const json = JSON.stringify({
+		updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+		repos
+	}, null, 2);
+	return writeOutput({
+		outDir,
+		workspace,
+		file: getJsonFileName(config),
+		content: json
+	});
+}
+//#endregion
 //#region src/index.ts
 /**
 * Runs the full action pipeline: parse → fetch → render → write → commit/push.
@@ -1731,12 +1837,17 @@ async function run() {
 	const outDir = resolve(workspace, config.outputDirectory);
 	const isInsideWorkspace = outDir === workspace || outDir.startsWith(`${workspace}${sep}`);
 	if (!isAbsolute(outDir) || !isInsideWorkspace) throw new Error("output-directory must point inside the workspace");
-	const datasets = await Promise.all(config.repos.map(async (repo) => ({
-		repo,
-		records: await getRepoStarRecords(repo, config.token, 15),
-		logo: await toBase64(await getRepoLogo(repo, config.token))
-	})));
+	const datasets = await fetchDatasets(config);
 	await mkdir(outDir, { recursive: true });
+	if (config.outputFormat === "json") {
+		commitAndPush({
+			cwd: workspace,
+			files: [await writeJsonExport(config, datasets, outDir, workspace)],
+			token: config.token
+		});
+		info("done");
+		return;
+	}
 	const chartPaths = [];
 	for (const { theme, svgFile, pngFile } of getChartFilePaths(config)) {
 		const svg = await renderStarHistorySvg({

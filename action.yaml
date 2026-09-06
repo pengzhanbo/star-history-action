@@ -35,7 +35,8 @@ inputs:
     required: false
     default: light
   output-format:
-    description: Output file format. svg (default), png (rasterized), or both
+    description: Output file format. svg (default), png (rasterized), both, or
+      json (structured record data instead of charts)
     required: false
     default: svg
   radar:

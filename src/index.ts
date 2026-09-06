@@ -2,14 +2,14 @@ import { mkdir } from 'node:fs/promises'
 import { isAbsolute, resolve, sep } from 'node:path'
 import { info, setFailed } from '@actions/core'
 import { renderRadarSvg } from './charts/radar-svg.js'
-import { DEFAULT_MAX_REQUEST_AMOUNT } from './common/constants.js'
 import { writeOutput } from './common/output.js'
 import { rasterizeSvg } from './common/raster.js'
 import { renderStarHistorySvg } from './render.js'
-import { getRepoLogo, getRepoStarRecords, toBase64 } from './services/api.js'
 import { getChartFilePaths, getRadarFilePaths, parseInputs } from './services/config.js'
 import { GITHUB_WORKSPACE } from './services/env.js'
+import { fetchDatasets } from './services/fetch.js'
 import { commitAndPush } from './services/git.js'
+import { writeJsonExport } from './services/json-export.js'
 import { getRepoRadarAttributes } from './services/radar.js'
 
 /**
@@ -39,18 +39,23 @@ async function run(): Promise<void> {
     throw new Error('output-directory must point inside the workspace')
   }
 
-  // Fetch records + logo for every repo in parallel; each repo keeps its own
-  // request budget so comparing repos never starves one another.
-  // 并行抓取每个仓库的记录与 logo；每个仓库独立使用请求预算，互不挤占。
-  const datasets = await Promise.all(
-    config.repos.map(async (repo) => ({
-      repo,
-      records: await getRepoStarRecords(repo, config.token, DEFAULT_MAX_REQUEST_AMOUNT),
-      logo: await toBase64(await getRepoLogo(repo, config.token)),
-    })),
-  )
+  const datasets = await fetchDatasets(config)
 
   await mkdir(outDir, { recursive: true })
+
+  // JSON output: structured data instead of charts. No avatar was fetched above
+  // (includeLogo is false), so this branch only touches the star records.
+  // JSON 输出：以结构化数据代替图表。上方未抓取头像（includeLogo 为 false），
+  // 因此此分支只接触 star 记录。
+  if (config.outputFormat === 'json') {
+    commitAndPush({
+      cwd: workspace,
+      files: [await writeJsonExport(config, datasets, outDir, workspace)],
+      token: config.token,
+    })
+    info('done')
+    return
+  }
 
   // Rasterize via resvg, which loads the xkcd font from assets/xkcd.ttf so the
   // PNG text style matches the SVG (librsvg ignores the inlined @font-face).
