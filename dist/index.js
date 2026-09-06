@@ -17,37 +17,20 @@ import duration from "dayjs/plugin/duration.js";
 import relativeTime from "dayjs/plugin/relativeTime.js";
 import { setTimeout } from "node:timers/promises";
 import { execFileSync, spawnSync } from "node:child_process";
-//#region src/common/font-subset.ts
+
 let ttfBuffer;
 function getTtfBuffer() {
 	ttfBuffer ??= readFileSync(resolve("assets/xkcd.ttf"));
 	return ttfBuffer;
 }
 let fontDataUrl;
-/**
-* Returns the full xkcd TrueType font as a data URL, read from
-* `assets/xkcd.ttf` at runtime.
-*
-* 返回完整的 xkcd TrueType 字体 data URL，运行时从 `assets/xkcd.ttf`
-* 读取。用于渲染期兜底以及未内联子集字体时仍可显示完整字体。
-*
-* @returns A fonts/ttf data URL / fonts/ttf data URL
-*/
+
 function getXkcdFontUrl() {
 	fontDataUrl ??= `data:font/ttf;charset=utf-8;base64,${getTtfBuffer().toString("base64")}`;
 	return fontDataUrl;
 }
-const urlCache = /* @__PURE__ */ new Map();
-/**
-* Subsets the xkcd font to only the glyphs needed to render `text`, returning
-* a woff2 data URL ready to be inlined into the SVG.
-*
-* 将 xkcd 字体按 `text` 中实际出现的字符做子集化，
-* 返回可直接内联进 SVG 的 woff2 data URL。
-*
-* @param text - All text rendered in the SVG / SVG 中渲染的全部文本
-* @returns A woff2 data URL / woff2 data URL
-*/
+const urlCache =  new Map();
+
 function getSubsetFontUrl(text) {
 	const key = text || " ";
 	let pending = urlCache.get(key);
@@ -57,13 +40,9 @@ function getSubsetFontUrl(text) {
 	}
 	return pending;
 }
-//#endregion
-//#region src/charts/radar-svg.ts
-/**
-* Pure-math radar SVG generator — no D3 dependency.
-* Produces a complete <svg> string suitable for embedding in satori
-* (as a data:image/svg+xml;base64 src) or direct rendering.
-*/
+
+
+
 const LIGHT_COLORS = {
 	background: "transparent",
 	gridStroke: "#ccc",
@@ -84,11 +63,7 @@ const DARK_COLORS = {
 	dataColor: "#2ea043",
 	dotStroke: "#0d1117"
 };
-/**
-* Radar axis labels, clockwise from 12 o'clock.
-*
-* 雷达轴标签，从 12 点方向顺时针排列。
-*/
+
 const LABELS = [
 	"Stars",
 	"New Stars",
@@ -97,11 +72,7 @@ const LABELS = [
 	"Pushes",
 	"Forks"
 ];
-/**
-* Attribute keys in the same order as {@link LABELS}.
-*
-* 与 {@link LABELS} 顺序一致的属性键。
-*/
+
 const KEYS = [
 	"stars",
 	"new_stars",
@@ -110,24 +81,13 @@ const KEYS = [
 	"pushes",
 	"forks"
 ];
-/**
-* Concentric level rings drawn at these percentages of the max radius.
-*
-* 以最大半径的这些百分比绘制同心等级环。
-*/
+
 const LEVELS = [
 	25,
 	50,
 	75
 ];
-/**
-* Seeds a deterministic PRNG (LCG) so the wobble is reproducible.
-*
-* 构造一个可复现的伪随机数生成器（线性同余），保证抖动结果可复现。
-*
-* @param seed - Seed integer / 随机种子整数
-* @returns A function yielding floats in [0, 1) / 返回生成 [0, 1) 浮点数的函数
-*/
+
 function createRng(seed) {
 	let s = seed | 0;
 	return () => {
@@ -135,18 +95,7 @@ function createRng(seed) {
 		return (s >>> 0) / 4294967296;
 	};
 }
-/**
-* Generate a wobbly SVG path string for a closed polygon.
-*
-* 为多边形生成带抖动效果的 SVG 路径字符串。
-*
-* @param points - Array of [x, y] points for the polygon / 多边形顶点坐标数组
-* @param jitter - Amount of wobble (0-1) / 抖动幅度（0-1）
-* @param rng - Random number generator function / 随机数生成函数
-* @param closed - Whether to close the polygon (default true) / 是否闭合多边形（默认 true）
-* @returns SVG path string, or `''` for fewer than two points /
-*   SVG 路径字符串；少于两个点时返回空字符串
-*/
+
 function sketchyPolygonPath(points, jitter, rng, closed = true) {
 	if (points.length < 2) return "";
 	const segments = [];
@@ -175,33 +124,7 @@ function sketchyPolygonPath(points, jitter, rng, closed = true) {
 	if (closed) segments.push("Z");
 	return segments.join(" ");
 }
-/**
-* Pure-math radar SVG generator — no D3 dependency.
-* Produces a complete `<svg>` string suitable for embedding in satori
-* (as a data:image/svg+xml;base64 src) or direct rendering.
-*
-* 纯数学计算的雷达图 SVG 生成器——不依赖 D3。
-* 生成完整的 `<svg>` 字符串，可用于嵌入 satori（作为 data:image/svg+xml;
-* base64 的 src）或直接渲染。
-*
-* The xkcd font is inlined as a woff2 subset covering only the glyphs the chart
-* actually draws (axis labels + level numbers); subsetting failure falls back
-* to the full TrueType font. Like the xy-chart, the radar text is identical
-* across themes, so the subset is computed once and cached.
-*
-* 内联的 xkcd 字体是仅包含图表实际绘制字形（轴标签 + 等级数字）的 woff2
-* 子集；子集化失败时回退到完整 TrueType 字体。与 xy-chart 一致，radar 的
-* 文本跨主题相同，因此子集只需计算一次并被缓存。
-*
-* @param attributes - Repo metrics (0–99 percentiles) / 仓库指标（0–99 百分位）
-* @param options - Render options: theme and size / 渲染选项：主题与尺寸
-* @returns A promise of a complete standalone SVG string / 完整独立 SVG 字符串的 Promise
-* @example
-* const svg = await renderRadarSvg(
-*   { stars: 90, new_stars: 40, pushes: 20 },
-*   { theme: 'dark', size: 400 },
-* )
-*/
+
 async function renderRadarSvg(attributes, options = {}) {
 	const theme = options.theme ?? "light";
 	const size = options.size ?? 400;
@@ -268,77 +191,23 @@ async function renderRadarSvg(attributes, options = {}) {
 	parts.push(`</svg>`);
 	return parts.join("");
 }
-//#endregion
-//#region src/common/output.ts
-/**
-* Writes a chart file under the output directory and logs its workspace-relative
-* path, returning that path for the commit file list.
-*
-* 将图表文件写入输出目录，记录其相对于工作区的路径，并返回该路径用于
-* 提交文件列表。
-*
-* @param options - Output destination and content / 输出目标与内容
-* @returns Workspace-relative path of the written file / 已写入文件的工作区相对路径
-*/
+
+
+
 async function writeOutput(options) {
 	const filePath = join(options.outDir, options.file);
 	await writeFile(filePath, options.content);
 	info(`wrote ${relative(options.workspace, filePath)}`);
 	return relative(options.workspace, filePath);
 }
-//#endregion
-//#region src/common/raster.ts
-/**
-* Extracts the CSS background color from a generated SVG (`style="background:…"`),
-* so the rasterizer can paint the same backdrop as the browser would.
-*
-* 从生成的 SVG 中提取 CSS 背景色（`style="background:…"`），使栅格化输出与
-* 浏览器渲染的底色一致。
-*
-* @param svg - Serialized chart SVG / 序列化的图表 SVG
-* @returns The background color, or undefined for transparent / 背景色；透明时返回 undefined
-*/
+
+
+
 function svgBackground(svg) {
 	const bg = /background:([^;"']+)/.exec(svg)?.[1]?.trim();
 	return bg && bg !== "transparent" ? bg : void 0;
 }
-/**
-* Rasterizes a chart SVG to PNG via resvg, then re-encodes the result through
-* sharp's palette quantization.
-*
-* 通过 resvg 将图表 SVG 栅格化为 PNG，再经 sharp 调色板量化二次编码。
-*
-* Unlike librsvg (sharp's engine), resvg loads the xkcd font explicitly from
-* `assets/xkcd.ttf`, so the PNG text style matches the SVG instead of falling
-* back to a system font. The font path resolves from the action repo root —
-* the composite action runs with `working-directory: ${{ github.action_path }}`
-* and both local and e2e runs use the repo root, mirroring `font-subset.ts`.
-* The output size follows the SVG's own `width`/`height` attributes, so the
-* history chart (960×640) and radar chart (400×400) each rasterize at their
-* native resolution.
-*
-* 与 librsvg（sharp 的底层引擎）不同，resvg 显式从 `assets/xkcd.ttf` 加载
-* xkcd 字体，因此 PNG 的文字样式与 SVG 一致，而不会回退到系统字体。字体
-* 路径基于 action 仓库根解析——composite action 以
-* `working-directory: ${{ github.action_path }}` 运行，本地与 e2e 同样在
-* 仓库根运行，与 `font-subset.ts` 一致。输出尺寸跟随 SVG 自身的
-* `width`/`height` 属性，因此历史图（960×640）与雷达图（400×400）都按各自
-* 原生分辨率栅格化。
-*
-* Chart color palettes stay far below 256 entries (background, grid, a few
-* lines, and antialiased text), so `palette: true` maps every pixel to the
-* palette losslessly while shrinking the file ~65% — pixel-identical output.
-* If a chart ever exceeds 256 colors the quantization becomes slightly lossy
-* instead of failing.
-*
-* 图表调色板远少于 256 种颜色（背景、网格、少数折线以及抗锯齿文字），因此
-* `palette: true` 可无损地将每个像素映射到调色板，同时将文件体积缩减约 65%，
-* 输出与原始渲染逐像素一致。若未来图表颜色超过 256 种，量化将退化为轻微
-* 有损，而不会报错。
-*
-* @param svg - Chart SVG string / 图表 SVG 字符串
-* @returns PNG bytes / PNG 字节
-*/
+
 async function rasterizeSvg(svg) {
 	const background = svgBackground(svg);
 	const resvg = new Resvg(svg, {
@@ -354,13 +223,9 @@ async function rasterizeSvg(svg) {
 		palette: true
 	}).toBuffer();
 }
-//#endregion
-//#region src/common/colors.ts
-/**
-* 20-entry color palette for light-theme datasets.
-*
-* 浅色主题数据集的 20 色调色板。
-*/
+
+
+
 const colors = [
 	"#dd4528",
 	"#28a3dd",
@@ -383,11 +248,7 @@ const colors = [
 	"#5c6bc0",
 	"#e67e22"
 ];
-/**
-* 20-entry color palette for dark-theme datasets.
-*
-* 深色主题数据集的 20 色调色板。
-*/
+
 const darkColors = [
 	"#ff6b6b",
 	"#48dbfb",
@@ -410,73 +271,33 @@ const darkColors = [
 	"#9fa8da",
 	"#f5b041"
 ];
-//#endregion
-//#region src/charts/add-filter.ts
-/**
-* Injects the `xkcdify` wobble filter (feTurbulence + feDisplacementMap).
-*
-* Must run before any element references `url(#xkcdify)`.
-*
-* 注入 `xkcdify` 抖动滤镜（feTurbulence + feDisplacementMap）。
-*
-* 必须早于任何引用 `url(#xkcdify)` 的元素执行。
-*
-* @param selection - Root selection to append the `<filter>` into /
-*   要追加 `<filter>` 的根 selection
-*/
+
+
+
 function addFilter(selection) {
 	selection.append("filter").attr("id", "xkcdify").attr("filterUnits", "userSpaceOnUse").attr("x", -5).attr("y", -5).attr("width", "100%").attr("height", "100%").call((f) => {
 		f.append("feTurbulence").attr("type", "fractalNoise").attr("baseFrequency", "0.05").attr("result", "noise");
 		f.append("feDisplacementMap").attr("scale", "5").attr("xChannelSelector", "R").attr("yChannelSelector", "G").attr("in", "SourceGraphic").attr("in2", "noise");
 	});
 }
-//#endregion
-//#region src/charts/add-font.ts
-/**
-* Injects the `'xkcd'` @font-face into the SVG's defs.
-*
-* 向 SVG 的 defs 中注入 `'xkcd'` @font-face。
-*
-* 字体数据在运行时从 `assets/xkcd.ttf` 读取，因此该函数仅适用于
-* Node 渲染环境（action 与图片生成场景）。
-*
-* @param selection - Root selection to append the `<defs>` into /
-*   要追加 `<defs>` 的根 selection
-*/
+
+
+
 function addFont(selection) {
 	selection.append("defs").append("style").attr("type", "text/css").text(`@font-face {
       font-family: "xkcd";
       src: url(${getXkcdFontUrl()}) format('truetype');
     }`);
 }
-//#endregion
-//#region src/charts/get-format-number.ts
-/**
-* Picks the smallest unit that keeps the number readable.
-*
-* 选择能让数字保持可读的最小量级单位。
-*
-* @param n - The number to format / 待格式化的数字
-* @returns `1000000` for ≥1e6, `1000` for ≥300, otherwise `1` /
-*   ≥1e6 时为 `1000000`，≥300 时为 `1000`，其余为 `1`
-*/
+
+
+
 function getNumberFormatUnit(n) {
 	if (n >= 1e6) return 1e6;
 	if (n >= 300) return 1e3;
 	return 1;
 }
-/**
-* Formats a number compactly with K/M suffixes.
-*
-* 使用 K/M 后缀对数字进行紧凑格式化。
-*
-* @param n - The number to format / 待格式化的数字
-* @param type - Magnitude unit; defaults to `1` / 量级单位，默认为 `1`
-* @returns Compact string (e.g. `1.2K`, `3M`, `42`) /
-*   紧凑字符串（例如 `1.2K`、`3M`、`42`）
-* @example
-* getFormatNumber(1234, getNumberFormatUnit(1234)) // '1.2K'
-*/
+
 function getFormatNumber(n, type = 1) {
 	if (type === 1) return `${n}`;
 	if (type === 1e6) {
@@ -486,18 +307,11 @@ function getFormatNumber(n, type = 1) {
 	if (n >= 1e3 && n % 1e3 === 0) return `${n / 1e3}K`;
 	return `${(n / 1e3).toFixed(1)}K`;
 }
-//#endregion
-//#region src/charts/get-format-timeline.ts
+
+
 dayjs.extend(duration);
 dayjs.extend(relativeTime);
-/**
-* Chooses the granularity that best fits the given duration.
-*
-* 为给定的时长选择最合适的粒度。
-*
-* @param timestamp - Duration in milliseconds / 时长（毫秒）
-* @returns `year`, `month`, `week`, or `day` / `year`、`month`、`week` 或 `day`
-*/
+
 function getTimestampFormatUnit(timestamp) {
 	let timelineUnit = "day";
 	if (dayjs.duration(timestamp).asYears() > 1) timelineUnit = "year";
@@ -505,19 +319,7 @@ function getTimestampFormatUnit(timestamp) {
 	else if (dayjs.duration(timestamp).asWeeks() > 1) timelineUnit = "week";
 	return timelineUnit;
 }
-/**
-* Formats a duration as a human-readable phrase.
-*
-* 将时长格式化为人类可读的短语。
-*
-* @param timestamp - Duration in milliseconds / 时长（毫秒）
-* @param type - Granularity; defaults to `day` / 粒度，默认为 `day`
-* @returns `'day one'` for zero, otherwise phrases like `'a month'` or `'12 days'` /
-*   时长为 0 时返回 `'day one'`，否则返回如 `'a month'`、`'12 days'` 这样的短语
-* @example
-* getFormatTimeline(0) // 'day one'
-* getFormatTimeline(31 * 86400_000, 'month') // 'a month'
-*/
+
 function getFormatTimeline(timestamp, type = "day") {
 	if (timestamp === 0) return "day one";
 	const seconds = Math.floor(timestamp / 1e3);
@@ -539,16 +341,9 @@ function getFormatTimeline(timestamp, type = "day") {
 		return `${years} years`;
 	}
 }
-//#endregion
-//#region src/charts/draw-axis.ts
-/**
-* Draws the x-axis; number-type axes render human-readable durations.
-*
-* 绘制 x 轴；数值类型的轴向渲染人类可读的时长。
-*
-* @param selection - Selection to append the axis into / 要追加坐标轴的 selection
-* @param config - Axis configuration / 坐标轴配置
-*/
+
+
+
 function drawXAxis(selection, { xScale, tickCount, moveDown, fontFamily, stroke, type }) {
 	const xAxisGenerator = axisBottom(xScale).tickSize(0).tickPadding(6).ticks(tickCount);
 	if (type === "Number") {
@@ -567,14 +362,7 @@ function drawXAxis(selection, { xScale, tickCount, moveDown, fontFamily, stroke,
 	selection.selectAll(".domain").attr("filter", "url(#xkcdify)").style("stroke", stroke);
 	selection.selectAll(".xaxis > .tick > text").style("font-family", fontFamily).style("font-size", "16px").style("fill", stroke);
 }
-/**
-* Draws the y-axis; log mode emits smart powers-of-ten ticks.
-*
-* 绘制 y 轴；对数模式下生成智能的 10 的幂次刻度。
-*
-* @param selection - Selection to append the axis into / 要追加坐标轴的 selection
-* @param yAxisOptions - Axis configuration / 坐标轴配置
-*/
+
 function drawYAxis(selection, { yScale, tickCount, fontFamily, stroke, useLogScale }) {
 	let type = void 0;
 	const yAxisGenerator = axisLeft(yScale).tickSize(1).tickPadding(6);
@@ -624,27 +412,9 @@ function drawYAxis(selection, { yScale, tickCount, fontFamily, stroke, useLogSca
 	selection.selectAll(".domain").attr("filter", "url(#xkcdify)").style("stroke", stroke);
 	selection.selectAll(".yaxis > .tick > text").style("font-family", fontFamily).style("font-size", "16px").style("fill", stroke);
 }
-//#endregion
-//#region src/charts/draw-labels.ts
-/**
-* Draws the centered chart title, optionally with a circular owner logo.
-*
-* 绘制居中的图表标题，可选地附带圆形 owner 头像。
-*
-* The logo and the text are laid out as one group (`[logo][gap][text]`) and
-* the whole group is horizontally centered. A fixed pixel offset from the
-* text center would overlap long titles and leave short ones off-center.
-*
-* logo 与文字作为一组（`[logo][间距][文字]`）整体水平居中；若按固定像素
-* 偏移放置 logo，长标题会与其重叠，短标题又会整体偏离中心。
-*
-* @param selection - Selection to append the title into / 要追加标题的 selection
-* @param text - Title text / 标题文字
-* @param logoURL - Avatar URL; `''` skips the logo / 头像 URL，为空时跳过 logo
-* @param color - Text color / 文字颜色
-* @param chartWidth - Chart width in px; used to place the logo precisely /
-*   图表宽度（像素），用于精确放置 logo
-*/
+
+
+
 function drawTitle(selection, text, logoURL, color, chartWidth) {
 	let logoX = "38%", clipX = "39.5%";
 	if (selection.node()?.getBoundingClientRect()) {
@@ -659,28 +429,11 @@ function drawTitle(selection, text, logoURL, color, chartWidth) {
 	selection.append("svg").append("defs").append("clipPath").attr("id", "clip-circle-title").append("circle").attr("r", 11).attr("cx", clipX).attr("cy", 23);
 	if (logoURL) selection.append("image").attr("x", logoX).attr("y", 12).attr("height", 22).attr("width", 22).attr("href", logoURL).attr("clip-path", "url(#clip-circle-title)");
 }
-/**
-* Draws the centered x-axis label at the bottom of the chart.
-*
-* 在图表底部绘制居中的 x 轴标签。
-*
-* @param selection - Selection to append the label into / 要追加标签的 selection
-* @param text - Label text / 标签文字
-* @param color - Text color / 文字颜色
-*/
+
 function drawXLabel(selection, text, color) {
 	selection.append("text").style("font-size", "17px").style("fill", color).attr("x", "50%").attr("y", (selection.attr("height") || 10) - 10).attr("text-anchor", "middle").text(text);
 }
-/**
-* Draws the rotated y-axis label along the left edge of the chart.
-*
-* 绘制图表左侧旋转 90 度的 y 轴标签。
-*
-* @param selection - Selection to append the label into / 要追加标签的 selection
-* @param text - Label text / 标签文字
-* @param color - Text color / 文字颜色
-* @param offsetY - Vertical offset of the label / 标签的垂直偏移
-*/
+
 function drawYLabel(selection, text, color, offsetY = 6) {
 	selection.append("text").attr("text-anchor", "end").attr("dy", ".75em").attr("transform", "rotate(-90)").style("font-size", "17px").style("fill", color).text(text).attr("y", offsetY).call((f) => {
 		let textLength = 100;
@@ -689,16 +442,9 @@ function drawYLabel(selection, text, color, offsetY = 6) {
 		f.attr("x", offsetX);
 	});
 }
-//#endregion
-//#region src/charts/draw-last-value.ts
-/**
-* Picks a readable pill text color from the background luminance.
-*
-* 根据背景亮度选择可读的胶囊文字颜色。
-*
-* @param color - The pill fill color (hex) / 胶囊填充色（十六进制）
-* @returns `#000` on light fills, `#fff` otherwise / 亮色填充返回 `#000`，否则返回 `#fff`
-*/
+
+
+
 function getContrastTextColor(color) {
 	const hex = color.startsWith("#") ? color.slice(1) : "";
 	if (hex.length !== 6) return "#fff";
@@ -707,16 +453,7 @@ function getContrastTextColor(color) {
 	const b = Number.parseInt(hex.slice(4, 6), 16);
 	return (.299 * r + .587 * g + .114 * b) / 255 > .6 ? "#000" : "#fff";
 }
-/**
-* Draws a pill label with the formatted latest value at the newest point,
-* anchored above the point and flipped below it when the top would clip.
-*
-* 在最新数据点处绘制带格式化最新值的胶囊标签：默认位于点的上方，
-* 当上方超出画布时翻转到点的下方。
-*
-* @param selection - Selection to append the pill into / 要追加胶囊的 selection
-* @param config - Pill configuration / 胶囊配置
-*/
+
 function drawLastValue(selection, { value, x, y, color, chartWidth }) {
 	const text = getFormatNumber(value, value >= 1e3 ? getNumberFormatUnit(value) : 1);
 	const fontSize = 14;
@@ -729,16 +466,9 @@ function drawLastValue(selection, { value, x, y, color, chartWidth }) {
 	group.append("rect").attr("x", centerX - width / 2).attr("y", rectY).attr("width", width).attr("height", height).attr("rx", height / 2).attr("ry", height / 2).attr("filter", "url(#xkcdify)").style("fill", color);
 	group.append("text").attr("x", centerX).attr("y", rectY + height / 2).attr("dy", "0.35em").attr("text-anchor", "middle").style("font-size", `${fontSize}px`).style("font-weight", "bold").style("fill", getContrastTextColor(color)).text(text);
 }
-//#endregion
-//#region src/charts/draw-legend.ts
-/**
-* Draws the dataset legend (color swatches, owner logos, labels).
-*
-* 绘制数据集图例（色块、所有者 logo、标签）。
-*
-* @param selection - Selection to append the legend into / 要追加图例的 selection
-* @param config - Legend configuration / 图例配置
-*/
+
+
+
 function drawLegend(selection, { items, strokeColor, backgroundColor, legendPosition, chartWidth, chartHeight }) {
 	const legendXPadding = 7;
 	const xkcdCharWidth = 7;
@@ -773,29 +503,16 @@ function drawLegend(selection, { items, strokeColor, backgroundColor, legendPosi
 	if (textLayer.node()?.getBBox) bboxWidth = textLayer.node()?.getBBox().width;
 	backgroundLayer.append("rect").style("fill", backgroundColor).attr("fill-opacity", .85).attr("stroke", strokeColor).attr("stroke-width", 2).attr("rx", 5).attr("ry", 5).attr("filter", "url(#xkcdify)").attr("width", backgroundWidth).attr("height", backgroundHeight).attr("x", legendX).attr("y", legendY);
 }
-//#endregion
-//#region src/charts/xy-chart.ts
-/**
-* Base chart padding, copied per render so consecutive renders never
-* contaminate each other's state.
-*
-* 图表的基础留白，每次渲染复制一份，避免连续渲染之间相互污染状态。
-*/
+
+
+
 const margin = {
 	top: 50,
 	right: 55,
 	bottom: 50,
 	left: 50
 };
-/**
-* Default options for the light theme (or any theme when unspecified).
-*
-* 浅色主题（或未指定主题时）的默认选项。
-*
-* @param transparent - Whether to use a transparent background /
-*   是否使用透明背景
-* @returns The default options / 默认选项
-*/
+
 const getDefaultOptions = (transparent) => ({
 	xTickLabelType: "Date",
 	xTickCount: 5,
@@ -809,38 +526,14 @@ const getDefaultOptions = (transparent) => ({
 	legendPosition: "top-left",
 	showEndValue: true
 });
-/**
-* Default options for the dark theme.
-*
-* 深色主题的默认选项。
-*
-* @param transparent - Whether to use a transparent background /
-*   是否使用透明背景
-* @returns The default options with the dark palette and background /
-*   使用深色调色板与背景的默认选项
-*/
+
 const getDarkThemeDefaultOptions = (transparent) => ({
 	...getDefaultOptions(transparent),
 	dataColors: darkColors,
 	backgroundColor: transparent ? "transparent" : "#0d1117",
 	strokeColor: "white"
 });
-/**
-* Renders an xkcd-style line chart into the given SVG element.
-*
-* 将 xkcd 风格的折线图渲染到给定的 SVG 元素中。
-*
-* @param svg - Target SVG element; existing content is cleared /
-*   目标 SVG 元素，已存在的内容会被清空
-* @param param1 - Chart-level config, destructured by the function /
-*   图表级配置，由函数解构
-* @param initialOptions - Partial options merged over the theme defaults /
-*   部分选项，会在主题默认值之上合并
-* @example
-* XYChart(svg, { title: 'owner/repo', xLabel: 'Date', yLabel: 'Stars',
-*   data, showDots: true, transparent: false, theme: 'light' },
-*   { chartWidth: 960 })
-*/
+
 function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, theme, transparent }, initialOptions) {
 	const options = {
 		...theme === "dark" ? getDarkThemeDefaultOptions(transparent) : getDefaultOptions(transparent),
@@ -945,29 +638,9 @@ function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, the
 		});
 	});
 }
-//#endregion
-//#region src/render.ts
-/**
-* Renders a complete standalone SVG string for a single theme.
-*
-* The full embedded xkcd font is swapped at the end for a woff2 subset that
-* contains only the glyphs used by the actual chart text, cutting the inlined
-* font from ~50KB to a few KB.
-*
-* 为单个主题渲染完整的独立 SVG 字符串。
-*
-* 渲染完成后会用仅包含图表实际文本字形的小体积 woff2 子集替换内嵌的完整
-* xkcd 字体，将内联字体从约 50KB 压缩到几 KB。
-*
-* @param input - Chart rendering inputs / 图表渲染输入
-* @returns The serialized SVG markup / 序列化后的 SVG 标记
-* @example
-* const svg = await renderStarHistorySvg({
-*   datasets: [{ repo: 'owner/repo', logo: '', records }],
-*   theme: 'dark',
-*   width: 960,
-* })
-*/
+
+
+
 async function renderStarHistorySvg(input) {
 	const dom = new JSDOM("<!doctype html><html><body></body></html>");
 	const { document } = dom.window;
@@ -982,7 +655,7 @@ async function renderStarHistorySvg(input) {
 			label: repo,
 			logo,
 			data: records.map((record) => ({
-				x: /* @__PURE__ */ new Date(`${record.date}T00:00:00Z`),
+				x:  new Date(`${record.date}T00:00:00Z`),
 				y: record.stars
 			}))
 		})) },
@@ -1001,25 +674,15 @@ async function renderStarHistorySvg(input) {
 function fixJsdomSvgCasing(svgContent) {
 	return svgContent.replace(/feturbulence/g, "feTurbulence").replace(/fedisplacementmap/g, "feDisplacementMap").replace(/filterunits/g, "filterUnits").replace(/basefrequency/g, "baseFrequency").replace(/xchannelselector/g, "xChannelSelector").replace(/ychannelselector/g, "yChannelSelector").replace(/\btextlength=/g, "textLength=").replace(/\blengthadjust=/g, "lengthAdjust=");
 }
-//#endregion
-//#region src/services/cache.ts
-/**
-* Reads the incremental-fetch cache file into a per-repo baseline map when the
-* file exists and parses cleanly; `null` on any failure (missing, unreadable,
-* or structurally invalid JSON) tells the caller to fall back to a full fetch.
-*
-* 读取增量抓取缓存文件为按仓库索引的基线映射；文件缺失、不可读或结构非法的
-* JSON 一律返回 `null`，调用方据此回退为全量抓取。
-*
-* @param filePath - Absolute path of the cache file / 缓存文件的绝对路径
-* @returns Per-repo baseline records, or `null` / 按仓库索引的基线记录，或 `null`
-*/
+
+
+
 async function readCacheRecords(filePath) {
 	try {
 		const raw = await readFile(filePath, "utf8");
 		const data = JSON.parse(raw);
 		if (!Array.isArray(data?.repos)) return null;
-		const byRepo = /* @__PURE__ */ new Map();
+		const byRepo =  new Map();
 		for (const entry of data.repos) {
 			if (typeof entry?.repo !== "string" || !Array.isArray(entry.records)) return null;
 			const records = entry.records;
@@ -1031,141 +694,50 @@ async function readCacheRecords(filePath) {
 		return null;
 	}
 }
-/**
-* Serializes the datasets into the cache file content. No `updatedAt` stamp is
-* written: the bytes only change when the records change, keeping unchanged
-* reruns idempotent (an unchanged cache stages no git diff).
-*
-* 将数据集序列化为缓存文件内容。不写入 `updatedAt` 时间戳：仅当记录变化时
-* 字节才变化，无变化的重复运行保持幂等（不变的缓存不会产生 git 暂存差异）。
-*
-* @param datasets - Fetched datasets, one per repo / 抓取的数据集，每个仓库一条
-* @returns Pretty-printed cache JSON / 格式化后的缓存 JSON
-*/
+
 function serializeCache(datasets) {
 	return JSON.stringify({ repos: datasets.map(({ repo, records }) => ({
 		repo,
 		records
 	})) }, null, 2);
 }
-//#endregion
-//#region src/services/env.ts
-/**
-* Base URL of the GitHub API; honoring `GITHUB_API_URL` also supports
-* GitHub Enterprise Server instances.
-*
-* GitHub API 的基础 URL；识别 `GITHUB_API_URL` 同时也兼容 GitHub
-* Enterprise Server 实例。
-*/
+
+
+
 const GITHUB_API_URL = process.env["GITHUB_API_URL"] ?? "https://api.github.com";
-/**
-* The current repository in `owner/repo` form; empty on local runs.
-*
-* 当前仓库的 `owner/repo` 标识；本地运行时为空字符串。
-*/
+
 const GITHUB_REPOSITORY = process.env["GITHUB_REPOSITORY"] ?? "";
-/**
-* Base URL of the GitHub server, used to build the authenticated push URL.
-*
-* GitHub 服务器的基础 URL，用于构造带认证的推送地址。
-*/
+
 const GITHUB_SERVER_URL = process.env["GITHUB_SERVER_URL"] ?? "https://github.com";
-/**
-* Name of the event that triggered the workflow (e.g. `push`, `pull_request`).
-*
-* 触发工作流的事件名称（例如 `push`、`pull_request`）。
-*/
+
 const GITHUB_EVENT_NAME = process.env["GITHUB_EVENT_NAME"] ?? "";
-/**
-* Head ref (source branch) of a pull request; empty outside PR events.
-*
-* 拉取请求的源分支引用；非 PR 事件时为空字符串。
-*/
+
 const GITHUB_HEAD_REF = process.env["GITHUB_HEAD_REF"] ?? "";
-/**
-* Name of the branch or tag the run is based on.
-*
-* 运行所基于的分支或标签名称。
-*/
+
 const GITHUB_REF_NAME = process.env["GITHUB_REF_NAME"] ?? "";
-/**
-* Absolute path of the checked-out repository on the runner; empty on local runs.
-*
-* runner 上检出仓库的绝对路径；本地运行时为空字符串。
-*/
+
 const GITHUB_WORKSPACE = process.env["GITHUB_WORKSPACE"] ?? "";
-//#endregion
-//#region src/services/config.ts
-/**
-* Chart themes supported by the action.
-*
-* 动作支持的图表主题。
-*/
+
+
+
 const THEMES = ["light", "dark"];
-/**
-* Output formats the action can write.
-*
-* `json` exports the fetched records as structured data instead of charts.
-* The legacy `both` value is not part of the set; it is parsed as an alias for
-* `svg,png` (see {@link OUTPUT_FORMAT_ALIASES}).
-*
-* 动作可输出的文件格式。
-*
-* `json` 将抓取的记录以结构化数据导出，而非图表。
-* 遗留的 `both` 值不在集合内；它被解析为 `svg,png` 的别名
-* （见 {@link OUTPUT_FORMAT_ALIASES}）。
-*/
+
 const OUTPUT_FORMATS = [
 	"svg",
 	"png",
 	"json"
 ];
-/**
-* Backwards-compatible aliases for format lists: `both` expands to the SVG +
-* PNG pair, mirroring the pre-multi-format single-value input.
-*
-* 格式列表的向后兼容别名：`both` 展开为 SVG + PNG 组合，对应多格式输入
-* 之前的单一取值。
-*/
+
 const OUTPUT_FORMAT_ALIASES = { both: ["svg", "png"] };
-/**
-* Type guard narrowing a string to a known chart theme.
-*
-* 将字符串收窄为已知图表主题的类型守卫。
-*
-* @param value - Theme string to validate / 待校验的主题字符串
-* @returns True when the value is `light` or `dark` / 当值为 `light` 或 `dark` 时为真
-*/
+
 function isTheme(value) {
 	return THEMES.includes(value);
 }
-/**
-* Type guard narrowing a string to a known output format.
-*
-* 将字符串收窄为已知输出格式的类型守卫。
-*
-* @param value - Format string to validate / 待校验的格式字符串
-* @returns True when the value is `svg`, `png`, or `json` / 当值为 `svg`、`png` 或 `json` 时为真
-*/
+
 function isOutputFormat(value) {
 	return OUTPUT_FORMATS.includes(value);
 }
-/**
-* Parses the `output-format` input into a deduped format list. Comma/space-
-* separated entries (svg, png, json) allow generating several formats in one
-* run; `both` is kept as a legacy alias for `svg,png`. Each entry is trimmed,
-* lowercased, expanded through the alias table, and deduped — the same policy
-* as `theme`. An empty input defaults to `svg`.
-*
-* 将 `output-format` 输入解析为去重后的格式列表。逗号/空格分隔的多个格式
-* （svg、png、json）允许一次运行生成多种格式；`both` 保留为 `svg,png` 的
-* 遗留别名。每个条目逐个去空白、转小写、经别名表展开并去重——与 `theme`
-* 相同的策略。空输入默认为 `svg`。
-*
-* @param raw - Raw input value (or `''` when the input is absent) / 原始输入值（输入缺省时为 `''`）
-* @returns The deduped format list (always non-empty) / 去重后的格式列表（恒非空）
-* @throws {Error} When a fragment is not a known format / 当某个片段不是已知格式时抛出
-*/
+
 function parseOutputFormats(raw) {
 	const formats = [];
 	for (const fragment of raw.split(/[,，\s]+/)) {
@@ -1177,35 +749,14 @@ function parseOutputFormats(raw) {
 	}
 	return formats;
 }
-/**
-* Parses a `true`/`false` action input (case- and whitespace-insensitive,
-* defaulting to `false`). Empty values are tolerated so boolean inputs stay
-* optional.
-*
-* 解析 `true`/`false` 的动作输入（大小写与空白不敏感，默认 `false`）。
-* 空值被容忍，因此布尔输入保持可选。
-*
-* @param key - Input key (without the `INPUT_` prefix) / 输入键名（不含 `INPUT_` 前缀）
-* @returns True when the input parses to `true` / 输入解析为 `true` 时返回真
-* @throws {Error} When the value is neither `true` nor `false` / 当值既非 `true` 也非 `false` 时抛出
-*/
+
 function parseBooleanInput(key) {
 	const raw = getInput(key);
 	const value = raw.trim().toLowerCase();
 	if (value && value !== "true" && value !== "false") throw new Error(`${key} "${raw}" is invalid; use true or false`);
 	return value === "true";
 }
-/**
-* Reads and validates all action inputs from the runner environment.
-*
-* 从 runner 环境中读取并校验全部动作输入。
-*
-* @returns The parsed and validated configuration / 解析并校验后的配置
-* @throws {Error} When a required input is missing or a value is invalid / 当必填输入缺失或取值非法时抛出错误
-* @example
-* // On a GitHub runner, inputs arrive as INPUT_* env vars.
-* const config = parseInputs()
-*/
+
 function parseInputs() {
 	const repos = [];
 	const rawRepo = getInput("repo") || GITHUB_REPOSITORY;
@@ -1250,23 +801,7 @@ function parseInputs() {
 		includeLogo: outputFormat.some((format) => format !== "json")
 	};
 }
-/**
-* Maps the requested themes to concrete chart file names.
-*
-* 将请求的主题映射为具体的图表文件名。
-*
-* @param config - Parsed action inputs / 解析后的动作输入
-* @returns One entry per theme with the derived `.svg` (and, when the format
-*   list includes `png`, `.png`) file names: single-theme runs keep the input
-*   filename; multi-theme runs derive `-light`/`-dark` variants. A pure `json`
-*   export writes no charts, so it maps to an empty list. /
-*   每个主题一个条目，包含派生的 `.svg`（以及格式列表包含 `png` 时的 `.png`）
-*   文件名：单主题运行保留输入文件名；多主题运行派生 `-light`/`-dark` 变体。
-*   纯 `json` 导出不写图表，映射为空列表。
-* @example
-* getChartFilePaths({ ...themes: ['light', 'dark'], outputFilename: 'chart.svg' })
-* // [{ theme: 'light', svgFile: 'chart-light.svg' }, { theme: 'dark', svgFile: 'chart-dark.svg' }]
-*/
+
 function getChartFilePaths(config) {
 	if (config.outputFormat.every((format) => format === "json")) return [];
 	return (config.themes.length === 1 ? [{
@@ -1292,122 +827,34 @@ function getChartFilePaths(config) {
 		return output;
 	});
 }
-/**
-* Derives the JSON data export file name by swapping the `.svg` extension of
-* `output-filename`. The JSON holds every repo's records, so it is theme-agnostic
-* and never derives `-light`/`-dark` variants.
-*
-* 通过替换 `output-filename` 的 `.svg` 扩展名派生 JSON 数据导出文件名。
-* JSON 包含所有仓库的记录，与主题无关，因此不派生 `-light`/`-dark` 变体。
-*
-* @param config - Parsed action inputs / 解析后的动作输入
-* @returns The JSON file name / JSON 文件名
-* @example
-* getJsonFileName({ ...outputFilename: 'star-history.svg' })
-* // 'star-history.json'
-*/
+
 function getJsonFileName(config) {
 	return config.outputFilename.replace(/\.svg$/i, ".json");
 }
-/**
-* Derives the incremental-fetch cache file name by swapping the extension of
-* `output-filename` for `.cache.json`. The cache holds every repo's records in
-* one theme-agnostic file, so it never derives `-light`/`-dark` variants.
-*
-* 通过替换 `output-filename` 的扩展名为 `.cache.json` 派生增量抓取缓存文件名。
-* 缓存将所有仓库的记录聚合到一个与主题无关的文件中，因此不派生
-* `-light`/`-dark` 变体。
-*
-* @param config - Parsed action inputs / 解析后的动作输入
-* @returns The cache file name / 缓存文件名
-* @example
-* getCacheFileName({ ...outputFilename: 'star-history.svg' })
-* // 'star-history.cache.json'
-*/
+
 function getCacheFileName(config) {
 	const extIndex = config.outputFilename.lastIndexOf(".");
 	return `${extIndex > 0 ? config.outputFilename.slice(0, extIndex) : config.outputFilename}.cache.json`;
 }
-/**
-* Derives the radar chart file name for one repo (and, on multi-theme runs, one
-* theme). Single-repo runs keep a plain `<stem>-radar.svg`; multi-repo runs
-* suffix the repo (`/` → `-`) so each repo gets its own file; when both themes
-* are configured, `-light`/`-dark` is inserted before the extension (mirroring
-* {@link getChartFilePaths}).
-*
-* 为单个仓库（多主题运行时为单个主题）派生雷达图文件名。单仓库运行保留
-* `<stem>-radar.svg`；多仓库运行追加仓库名（`/` 替换为 `-`），使每个仓库
-* 各自成文件；配置双主题时在扩展名前插入 `-light`/`-dark`（与
-* {@link getChartFilePaths} 一致）。
-*
-* @param config - Parsed action inputs / 解析后的动作输入
-* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
-* @param theme - Theme being rendered; only honored when both themes are
-*   configured / 正在渲染的主题；仅当配置双主题时生效
-* @returns The radar chart file name / 雷达图文件名
-* @example
-* getRadarFileName(
-*   { outputFilename: 'star-history.svg', repos: ['a/b', 'c/d'], themes: ['light', 'dark'] },
-*   'a/b',
-*   'dark',
-* )
-* // 'star-history-radar-a-b-dark.svg'
-*/
+
 function getRadarFileName(config, repo, theme) {
 	const i = config.outputFilename.lastIndexOf(".");
 	const ext = i > 0 ? config.outputFilename.slice(i) : ".svg";
 	return `${i > 0 ? config.outputFilename.slice(0, i) : config.outputFilename}-radar${config.repos.length > 1 ? `-${repo.replaceAll("/", "-")}` : ""}${theme && config.themes.length > 1 ? `-${theme}` : ""}${ext}`;
 }
-/**
-* Maps the requested themes to concrete radar chart file names for one repo,
-* reusing the same naming rules as {@link getChartFilePaths}: theme suffixes
-* for multi-theme runs, and `.png` derivation when the format list includes
-* `png`.
-*
-* 将请求的主题映射为某个仓库的雷达图具体文件名，复用
-* {@link getChartFilePaths} 的命名规则：多主题运行追加主题后缀，格式列表
-* 包含 `png` 时派生 `.png` 文件名。
-*
-* @param config - Parsed action inputs / 解析后的动作输入
-* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
-* @returns One entry per theme with the derived `.svg` (and, when the format
-*   list includes `png`, `.png`) radar file names / 每个主题一个条目，包含派生的
-*   `.svg`（以及格式列表包含 `png` 时的 `.png`）雷达图文件名
-* @example
-* getRadarFilePaths({ ...themes: ['light', 'dark'], outputFormat: ['svg', 'png'], repos: ['a/b'] }, 'a/b')
-* // [
-* //   { theme: 'light', svgFile: 'star-history-radar-light.svg', pngFile: 'star-history-radar-light.png' },
-* //   { theme: 'dark', svgFile: 'star-history-radar-dark.svg', pngFile: 'star-history-radar-dark.png' },
-* // ]
-*/
+
 function getRadarFilePaths(config, repo) {
 	return getChartFilePaths({
 		...config,
 		outputFilename: getRadarFileName(config, repo)
 	});
 }
-//#endregion
-//#region src/common/constants.ts
+
+
 const REQUEST_TIMEOUT_MS = 15e3;
 const REPO_INFO_ACCEPT = "application/vnd.github+json";
 const STARGAZERS_ACCEPT = "application/vnd.github.v3.star+json";
-/**
-* Optimizes an image buffer: scales it down to `AVATAR_SIZE` and compresses
-* it with quality loss (jpeg/webp/avif) or palette quantization (png) so the
-* base64-embedded logo stays small. SVG inputs and undecodable buffers are
-* returned untouched.
-*
-* 优化图像缓冲区：将图像缩放到 `AVATAR_SIZE`，并以有损方式压缩
-* （jpeg/webp/avif）或调色板量化（png），使 base64 内嵌的 logo 保持较小。
-* SVG 输入与无法解码的缓冲区原样返回。
-*
-* @param image - Image buffer to optimize / 要优化的图像缓冲区
-* @returns The optimized image buffer / 优化后的图像缓冲区
-* @example
-* ```ts
-* const optimized = await optimizeImage(buf)
-* ```
-*/
+
 async function optimizeImage(image) {
 	try {
 		const img = sharp(image);
@@ -1426,67 +873,28 @@ async function optimizeImage(image) {
 		return image;
 	}
 }
-//#endregion
-//#region src/services/utils.ts
-/**
-* Formats an epoch timestamp as a UTC date string in `YYYY-MM-DD` form.
-*
-* 将毫秒级时间戳格式化为 `YYYY-MM-DD` 形式的 UTC 日期字符串。
-*
-* @param date - Epoch timestamp in milliseconds / 毫秒级时间戳
-* @returns The date in `YYYY-MM-DD` format / `YYYY-MM-DD` 格式的日期字符串
-* @example
-* formatDate(Date.parse('2024-01-05T00:00:00Z')) // '2024-01-05'
-*/
+
+
+
 function formatDate(date) {
 	return new Date(date).toISOString().substring(0, 10);
 }
-//#endregion
-//#region src/services/api.ts
+
+
 const API_BASE$1 = GITHUB_API_URL.replace(/\/+$/, "");
-/**
-* Extracts the page number of the `rel="last"` link from a GitHub Link header.
-*
-* 从 GitHub Link 响应头中提取 `rel="last"` 链接的页码。
-*
-* Parsing through the URL search params (instead of a positional regex)
-* tolerates instances that order query params differently (e.g.
-* `?page=2&per_page=100`) or omit them, as some GHES instances do.
-*
-* 通过 URL 查询参数解析（而非位置正则），可以兼容部分 GHES 实例中查询参数
-* 顺序不同（例如 `?page=2&per_page=100`）或省略参数的情况。
-*
-* @param link - Raw value of the `Link` response header / `Link` 响应头的原始值
-* @returns The page count, or null when the header is missing or malformed /
-*   页码总数；响应头缺失或格式非法时返回 null
-*/
+
 function parseLastPage(link) {
 	const match = /<([^>]+)>\s*;\s*rel="last"/.exec(link);
 	if (!match) return null;
 	const parsed = Number.parseInt(new URL(match[1]).searchParams.get("page") ?? "", 10);
 	return isInteger(parsed) && parsed > 0 ? parsed : null;
 }
-/**
-* Normalizes a `starred_at` payload — epoch ms numbers pass through,
-* ISO 8601 strings are parsed to epoch ms.
-*
-* 归一化 `starred_at` 负载——毫秒时间戳原样通过，ISO 8601 字符串解析为毫秒。
-*
-* @param value - Raw `starred_at` value / `starred_at` 原始值
-* @returns Epoch milliseconds / 毫秒级时间戳
-*/
+
 function parseStarredAt(value) {
 	return typeof value === "number" ? value : Date.parse(value);
 }
-/**
-* Status codes worth retrying: GitHub's rate-limit signals (403/429) and
-* server errors (5xx). Other 4xx responses (auth, not found) cannot be fixed
-* by retrying.
-*
-* 值得重试的状态码：GitHub 限流信号（403/429）与服务器错误（5xx）。
-* 其他 4xx 响应（权限、不存在等）重试无法解决。
-*/
-const RETRYABLE_STATUS = /* @__PURE__ */ new Set([
+
+const RETRYABLE_STATUS =  new Set([
 	403,
 	429,
 	500,
@@ -1494,30 +902,7 @@ const RETRYABLE_STATUS = /* @__PURE__ */ new Set([
 	503,
 	504
 ]);
-/**
-* Fetches a URL with auth, timeout, and retry handling.
-*
-* 带认证、超时与重试处理地请求一个 URL。
-*
-* Network failures, 5xx responses, and rate limits are retried with
-* exponential backoff. On a rate limit (403/429 with `x-ratelimit-remaining:
-* 0`) the request waits for the reset when it is within
-* `MAX_RATE_LIMIT_WAIT_MS`, otherwise it fails fast with a readable error
-* that includes the reset time.
-*
-* 网络错误、5xx 响应与限流会按指数退避重试。遇到限流（403/429 且
-* `x-ratelimit-remaining: 0`）时，若重置时间在 `MAX_RATE_LIMIT_WAIT_MS`
-* 以内则等待重置后重试，否则快速失败并抛出含重置时间的可读错误。
-*
-* @param url - Request target / 请求目标
-* @param token - GitHub token used as `Authorization: token` /
-*   用于 `Authorization: token` 的 GitHub 令牌
-* @param accept - Accept header value / Accept 请求头值
-* @param retryDelayMs - Backoff base delay; tests inject a tiny value to
-*   avoid real sleeps / 退避基准延迟；测试注入极小值以避免真实等待
-* @returns The fetch response (caller must check `ok` and parse the body) /
-*   fetch 响应（调用方需检查 `ok` 并解析响应体）
-*/
+
 async function request(url, token, accept = REPO_INFO_ACCEPT, retryDelayMs = 500) {
 	const headers = {
 		Accept: accept,
@@ -1545,7 +930,7 @@ async function request(url, token, accept = REPO_INFO_ACCEPT, retryDelayMs = 500
 				await setTimeout(waitMs);
 				continue;
 			}
-			const resetAt = resetSec > 0 ? (/* @__PURE__ */ new Date(resetSec * 1e3)).toISOString() : "unknown";
+			const resetAt = resetSec > 0 ? ( new Date(resetSec * 1e3)).toISOString() : "unknown";
 			throw new Error(`GitHub API rate limit exceeded (HTTP ${res.status}); quota resets at ${resetAt}`);
 		}
 		if (attempt < 2) {
@@ -1556,46 +941,13 @@ async function request(url, token, accept = REPO_INFO_ACCEPT, retryDelayMs = 500
 	}
 	throw new Error("request retries exhausted");
 }
-/**
-* Fetches one page of stargazers and returns their `starred_at` timestamps.
-*
-* 抓取一页 stargazer 并返回其 `starred_at` 时间戳。
-*
-* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
-* @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
-* @param page - Page number; defaults to page 1 / 页码，默认为第 1 页
-* @returns Epoch-ms `starred_at` values for the page, in GitHub's page order /
-*   该页的 `starred_at` 毫秒值，顺序与 GitHub 返回的页内顺序一致
-* @throws {Error} When the API response is not OK / 当 API 响应非成功状态时抛出
-*/
+
 async function getRepoStargazers(repo, token, page) {
 	const res = await request(`${API_BASE$1}/repos/${repo}/stargazers?per_page=100${page ? `&page=${page}` : ""}`, token, STARGAZERS_ACCEPT);
 	if (!res.ok) throw new Error(`Failed to get repo ${repo} stargazers: HTTP ${res.status}`);
 	return (await res.json()).map((item) => parseStarredAt(item.starred_at));
 }
-/**
-* Builds an ascending `{ date, stars }` series for the repository's history.
-*
-* 构建仓库历史的按日期升序 `{ date, stars }` 序列。
-*
-* When the history fits within the request budget, every stargazer is counted
-* for a full per-day series. Larger repositories are sampled: one boundary
-* point per page, each within ±100 stars of the real count. Page ordering is
-* detected from the repo's creation date, falling back to newest-first for
-* entries older than the GitHub default fetch of stargazers.
-*
-* 当历史规模在请求预算以内时，会统计每个 stargazer 生成完整的按日序列；
-* 更大的仓库则采样每个页面的一个边界点，每点与真实数量误差在 ±100 以内。
-* 页码顺序根据仓库创建日期判定，缺失创建日期时回退到 newest-first。
-*
-* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
-* @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
-* @param maxRequestAmount - Upper bound on the number of pages fetched /
-*   抓取序列时最大的页数上限
-* @returns Star records ascending by date / 按日期升序的 star 记录
-* @throws {Error} When the repo has no stars or an API response is not OK /
-*   当仓库没有 star 或 API 响应非成功状态时抛出
-*/
+
 async function getRepoStarRecords(repo, token, maxRequestAmount) {
 	const repoRes = await request(`${API_BASE$1}/repos/${repo}`, token);
 	if (!repoRes.ok) throw new Error(`Failed to get repo ${repo} info: HTTP ${repoRes.status}`);
@@ -1610,12 +962,12 @@ async function getRepoStarRecords(repo, token, maxRequestAmount) {
 	if (firstPageMs.length === 0) throw new Error(`Repo ${repo} has no star records`);
 	const sampled = pageCount > maxRequestAmount;
 	const pages = sampled ? Array.from({ length: maxRequestAmount }, (_, k) => 1 + Math.floor((pageCount - 1) * k / (maxRequestAmount - 1))) : range(2, pageCount + 1);
-	const pageData = /* @__PURE__ */ new Map();
+	const pageData =  new Map();
 	pageData.set(1, firstPageMs);
 	const restPages = pages.filter((page) => page !== 1);
 	const restData = await promiseParallel(restPages.map((page) => getRepoStargazers(repo, token, page)));
 	restPages.forEach((page, i) => pageData.set(page, restData[i]));
-	const records = /* @__PURE__ */ new Map();
+	const records =  new Map();
 	if (!sampled) [...pageData.values()].flat().sort((a, b) => a - b).forEach((ms, i) => records.set(formatDate(ms), i + 1));
 	else {
 		const tFirst = firstPageMs[0];
@@ -1635,36 +987,9 @@ async function getRepoStarRecords(repo, token, maxRequestAmount) {
 		stars
 	}));
 }
-/**
-* Merges newly fetched stargazer timestamps onto a baseline series, producing
-* the next ascending `{ date, stars }` records for the cache and charts.
-*
-* 将新抓取的 stargazer 时间戳合并到基线序列上，产出下一份按日期升序的
-* `{ date, stars }` 记录，供缓存与图表使用。
-*
-* Every stargazer on the same day collapses into one point. When the baseline's
-* last date already exists (stargazers kept arriving on that day), the point is
-* updated in place instead of appended, so the series stays strictly ascending.
-* The caller is expected to have filtered `incMs` to timestamps >= the
-* baseline's last date; the series end is re-anchored at today with the live
-* total. With no new stargazers the output is byte-stable relative to the
-* baseline (barring the final anchor date advancing), keeping unchanged reruns
-* idempotent.
-*
-* 同一天内的所有 stargazer 合并为一个点。当基线最后日期已存在时（当天仍在
-* 持续出现新 star），就地更新该点而非追加，保证序列严格升序。调用方需先将
-* `incMs` 过滤为不早于基线最后日期的时间戳；序列末尾会以实时 `total` 重新
-* 锚定到今天。没有新 stargazer 时输出相对基线字节稳定（除末尾锚点日期自然
-* 推进外），无变化的重复运行保持幂等。
-*
-* @param baseline - Ascending records from the previous run / 上一次运行的升序记录
-* @param incMs - Newly fetched `starred_at` timestamps, >= the baseline's last
-*   date, in any order / 新抓取的 `starred_at` 时间戳（不早于基线最后日期，任意顺序）
-* @param total - Live `stargazers_count` from the repo endpoint / 仓库接口的实时 `stargazers_count`
-* @returns The merged ascending records / 合并后的升序记录
-*/
+
 function mergeStarRecords(baseline, incMs, total) {
-	const counts = /* @__PURE__ */ new Map();
+	const counts =  new Map();
 	for (const ms of incMs) {
 		const date = formatDate(ms);
 		counts.set(date, (counts.get(date) ?? 0) + 1);
@@ -1694,39 +1019,7 @@ function mergeStarRecords(baseline, incMs, total) {
 	});
 	return merged;
 }
-/**
-* Fetches only the stargazers added since the baseline records, merging them
-* onto the baseline for a much cheaper update than a full history fetch.
-*
-* 仅抓取自基线记录以来新增的 stargazer，并将其合并到基线上，比全量抓取
-* 历史省下大量请求。
-*
-* GitHub serves stargazers newest-first by default, so this walks pages from
-* the newest end until a page dips below the baseline's last date (probe page 1
-* is reused, only following pages are fetched). An instance that serves
-* oldest-first, an empty or undatable baseline, or an increment that outgrows
-* the request budget all degrade to the full {@link getRepoStarRecords} fetch.
-* The baseline itself is a sampled approximation for very large histories, so
-* only the *increment* is made exact — the merged series keeps the baseline's
-* pre-existing sampling error.
-*
-* GitHub 默认按 newest-first 返回 stargazer，因此本函数从最新端逐页抓取，
-* 直到某一页低于基线最后日期为止（探测用的第 1 页被复用，仅抓后续页）。
-* 以下情况都会退化为完整的 {@link getRepoStarRecords} 抓取：实例按
-* oldest-first 返回、基线为空或日期不可解析、增量超出请求预算。对于历史
-* 规模很大的仓库，基线本身是采样近似，因此只有*增量*被精确化——合并后的
-* 序列保留基线既有的采样误差。
-*
-* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
-* @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
-* @param baseline - Ascending records from the previous run (cache baseline) /
-*   上一次运行的升序记录（缓存基线）
-* @param maxRequestAmount - Upper bound on the number of pages fetched /
-*   抓取序列时最大的页数上限
-* @returns Merged ascending records / 合并后的升序记录
-* @throws {Error} When the repo has no stars or an API response is not OK /
-*   当仓库没有 star 或 API 响应非成功状态时抛出
-*/
+
 async function getIncrementalStarRecords(repo, token, baseline, maxRequestAmount) {
 	const lastDateMs = Date.parse(`${baseline.at(-1)?.date}T00:00:00Z`);
 	if (baseline.length === 0 || !Number.isFinite(lastDateMs)) return getRepoStarRecords(repo, token, maxRequestAmount);
@@ -1761,15 +1054,7 @@ async function getIncrementalStarRecords(repo, token, baseline, maxRequestAmount
 	}
 	return mergeStarRecords(baseline, newMs, total);
 }
-/**
-* Fetches the owner's avatar URL, or `''` when the user lookup fails.
-*
-* 获取所有者的头像 URL；用户查询失败时返回空字符串。
-*
-* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
-* @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
-* @returns The owner's avatar URL, or `''` on failure / 所有者的头像 URL，失败时为空字符串
-*/
+
 async function getRepoLogo(repo, token) {
 	const owner = repo.split("/")[0];
 	const response = await request(`${API_BASE$1}/users/${owner}`, token);
@@ -1791,35 +1076,9 @@ async function toBase64(url) {
 	const buf = Buffer.from(await res.arrayBuffer());
 	return `data:${type};base64,${Buffer.from(await optimizeImage(buf)).toString("base64")}`;
 }
-//#endregion
-//#region src/services/fetch.ts
-/**
-* Fetches star records (+ the owner avatar when the SVG families need it) for
-* every repo in parallel; each repo keeps its own request budget so comparing
-* repos never starves one another. A single failing repo (404, rate limit,
-* empty history) only skips that repo: the others still chart, and the failure
-* is reported as a warning. Only when every repo fails does the run fail —
-* there is nothing left to write.
-*
-* 并行抓取每个仓库的 star 记录（SVG 图表家族需要时还包括所有者头像）；
-* 每个仓库独立使用请求预算，互不挤占。单个仓库失败（404、限流、无 star）
-* 仅跳过该仓库：其余仓库照常出图，失败以 warning 记录。仅当全部仓库都
-* 失败时才失败——此时已无任何可写内容。
-*
-* With `cache: true` and a baseline for a repo, only the stargazers added since
-* the baseline are fetched (see {@link getIncrementalStarRecords}), keeping the
-* per-repo request count flat as histories grow.
-*
-* 当 `cache: true` 且存在仓库基线时，只抓取自基线以来新增的 stargazer
-* （见 {@link getIncrementalStarRecords}），使单仓库请求数不随历史增长。
-*
-* @param config - Parsed action inputs / 解析后的动作输入
-* @param baselineByRepo - Cache baseline records per repo; absent when `cache`
-*   is off or the cache file is missing/invalid / 按仓库索引的缓存基线记录；
-*   `cache` 关闭或缓存文件缺失/非法时缺省
-* @returns Datasets for the repos that fetched successfully / 抓取成功的仓库数据集
-* @throws {Error} When every repo fails to fetch / 当所有仓库都抓取失败时抛出
-*/
+
+
+
 async function fetchDatasets(config, baselineByRepo) {
 	const settled = await Promise.allSettled(config.repos.map(async (repo) => {
 		const baseline = baselineByRepo?.get(repo);
@@ -1840,19 +1099,9 @@ async function fetchDatasets(config, baselineByRepo) {
 	if (datasets.length === 0) throw new Error("no repository data could be fetched; see warnings above for per-repo failures");
 	return datasets;
 }
-//#endregion
-//#region src/services/git.ts
-/**
-* Runs a git command and throws a readable error on failure.
-*
-* 执行 git 命令，失败时抛出可读的错误信息。
-*
-* @param cwd - Directory to run git in / 执行 git 的目录
-* @param args - Git arguments after `git` / `git` 之后的命令行参数
-* @returns The trimmed stdout of the command / 命令的 stdout 输出（去除首尾空白）
-* @throws {Error} With the captured stderr when the command exits non-zero /
-*   命令以非零状态退出时抛出，包含捕获的 stderr
-*/
+
+
+
 function runGit(cwd, args) {
 	try {
 		return execFileSync("git", args, {
@@ -1868,22 +1117,7 @@ function runGit(cwd, args) {
 		throw new Error(`git ${args.join(" ")} failed: ${stderr.trim() || String(error)}`);
 	}
 }
-/**
-* Commits the chart files as `github-actions[bot]` and pushes them.
-*
-* Idempotent: runs with no staged changes skip the commit. On `pull_request`
-* events the whole write-back is skipped — forked PRs cannot be pushed with
-* the default token, and the chart does not belong on a feature branch.
-*
-* 以 `github-actions[bot]` 身份提交图表文件并推送。
-*
-* 幂等设计：无暂存变更时跳过提交。在 `pull_request` 事件下整个写回过程会被
-* 跳过——fork 的 PR 无法使用默认令牌推送，图表也不应提交到特性分支。
-*
-* @param options - Commit and push configuration / 提交与推送配置
-* @example
-* commitAndPush({ cwd: workspace, files: ['assets/star-history.svg'], token })
-*/
+
 function commitAndPush({ cwd, files, token }) {
 	if (GITHUB_EVENT_NAME === "pull_request") {
 		info("pull_request context: skipping commit and push");
@@ -1937,30 +1171,9 @@ function commitAndPush({ cwd, files, token }) {
 		"HEAD"
 	]);
 }
-//#endregion
-//#region src/services/json-export.ts
-/**
-* Writes the JSON data export: every repo's records (plus radar scores when
-* `radar` is enabled and the pre-fetched attributes exist for that repo) as
-* structured data, and returns its workspace-relative path for the commit file
-* list. Radar attributes are fetched once up front by the caller — a repo the
-* fetch skipped simply has no `radar` block, matching the radar-fetch failure
-* semantics of the previous per-branch fetch.
-*
-* 写入 JSON 数据导出：将每个仓库的记录（开启 `radar` 且调用方预取的属性中
-* 存在该仓库时附带雷达分数）以结构化数据写出，并返回其工作区相对路径用于
-* 提交文件列表。雷达属性由调用方统一预取一次——抓取被跳过的仓库不包含
-* `radar` 数据块，与原分支各自抓取时的失败语义一致。
-*
-* @param config - Parsed action inputs / 解析后的动作输入
-* @param datasets - Successfully fetched datasets / 抓取成功的数据集
-* @param outDir - Output directory / 输出目录
-* @param workspace - GitHub workspace root / GitHub 工作区根
-* @param radarByRepo - Pre-fetched radar attributes per repo (absent when
-*   `radar` is off); the map only holds repos that fetched successfully /
-*   按仓库索引的预取雷达属性（`radar` 关闭时缺省）；映射仅含抓取成功的仓库
-* @returns Workspace-relative path of the written JSON file / 已写入 JSON 文件的工作区相对路径
-*/
+
+
+
 async function writeJsonExport(config, datasets, outDir, workspace, radarByRepo) {
 	const repos = [];
 	for (const { repo, records } of datasets) {
@@ -1975,7 +1188,7 @@ async function writeJsonExport(config, datasets, outDir, workspace, radarByRepo)
 		repos.push(entry);
 	}
 	const json = JSON.stringify({
-		updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+		updatedAt: ( new Date()).toISOString(),
 		repos
 	}, null, 2);
 	return writeOutput({
@@ -1985,36 +1198,15 @@ async function writeJsonExport(config, datasets, outDir, workspace, radarByRepo)
 		content: json
 	});
 }
-//#endregion
-//#region src/services/radar.ts
+
+
 const API_BASE = GITHUB_API_URL.replace(/\/+$/, "");
-/**
-* Maps a raw metric count to a 0–99 radar score using a base-10 log scale:
-* each ~10x growth adds ~33 points (1 → 3, 1e3 → 33, 1e6 → 66), capped at 99.
-* GitHub exposes no percentile API, so this is a relative intensity score
-* rather than a true percentile.
-*
-* 用十进制对数刻度把原始指标数量映射为 0–99 的雷达分数：每增长约 10 倍
-* 加约 33 分（1 → 3，1e3 → 33，1e6 → 66），封顶 99。GitHub 不提供百分位
-* API，因此这是相对的强度分数而非真实的百分位。
-*
-* @param count - Raw metric count / 原始指标数量
-* @returns A score in [0, 99] / [0, 99] 范围内的分数
-*/
+
 function percentileOf(count) {
 	if (!Number.isFinite(count) || count <= 0) return 0;
 	return Math.min(99, Math.round(Math.log10(count + 1) / 3 * 33));
 }
-/**
-* Counts the stars gained in the last `days` days from an ascending star
-* record series (the newest record is anchored at today).
-*
-* 从升序的 star 记录序列（最新一条锚定在今天）统计最近 `days` 天的新增 star。
-*
-* @param records - Ascending `{ date, stars }` series / 升序 `{ date, stars }` 序列
-* @param days - Lookback window in days, default 30 / 回看窗口（天），默认 30
-* @returns New stars in the window / 窗口内的新增 star 数
-*/
+
 function newStarsInLastDays(records, days = 30) {
 	if (records.length === 0) return 0;
 	const cutoffDate = formatDate(Date.now() - days * 864e5);
@@ -2024,42 +1216,12 @@ function newStarsInLastDays(records, days = 30) {
 	const last = records[records.length - 1];
 	return Math.max(0, last.stars - base);
 }
-/**
-* Approximates the total count of a paginated GitHub list endpoint from its
-* `Link` header: `lastPage * perPage`. Returns null when the header is missing
-* (a single page or an endpoint without paging info).
-*
-* 依据 `Link` 响应头近似分页 GitHub 列表端点的总数：`lastPage * perPage`。
-* 响应头缺失（单页或端点无分页信息）时返回 null。
-*
-* @param link - Raw `Link` header value / `Link` 响应头的原始值
-* @returns An estimated count, or null when unpaginated / 估计数量；无分页时返回 null
-*/
+
 function estimateTotal(link) {
 	const last = link ? parseLastPage(link) : null;
 	return last == null ? null : last * 100;
 }
-/**
-* Fetches the six radar metrics for a repository and maps them to 0–99 scores.
-*
-* 抓取仓库的六项雷达指标并映射为 0–99 分数。
-*
-* Metric sources (each a single API call): `/repos/{repo}` gives stars and
-* forks; contributors and commits are approximated from the pagination of
-* `per_page=1` list calls; closed issues come from the search API. `new_stars`
-* is derived from the already-fetched star records (no extra request).
-*
-* 指标来源（各一次 API 调用）：`/repos/{repo}` 提供 stars 与 forks；contributors
-* 与 commits 依据 `per_page=1` 列表调用的分页近似；issues_closed 来自搜索 API。
-* `new_stars` 从已抓取的 star 记录推导（无额外请求）。
-*
-* @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
-* @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
-* @param records - Ascending star records from getRepoStarRecords /
-*   getRepoStarRecords 返回的升序 star 记录
-* @returns The radar attributes with 0–99 scores / 0–99 分数的雷达属性
-* @throws {Error} When the repo lookup fails / 当仓库查询失败时抛出
-*/
+
 async function getRepoRadarAttributes(repo, token, records) {
 	const repoRes = await request(`${API_BASE}/repos/${repo}`, token);
 	if (!repoRes.ok) throw new Error(`Failed to get repo ${repo} info: HTTP ${repoRes.status}`);
@@ -2081,26 +1243,10 @@ async function getRepoRadarAttributes(repo, token, records) {
 		forks: percentileOf(repoData.forks_count ?? 0)
 	};
 }
-/**
-* Fetches the radar attributes for every dataset in parallel, once per repo.
-* A failing repo is skipped with a warning (mirroring `fetchDatasets`'
-* partial-success policy) so the survivors still export — calling this once and
-* sharing the result between the JSON export and the radar charts keeps a
-* format list like `svg,png,json` from doubling the radar API requests.
-*
-* 为每个数据集并行抓取雷达属性，每个仓库只抓取一次。失败的仓库以 warning
-* 跳过（沿用 `fetchDatasets` 的部分成功策略），其余仓库照常导出——调用一次
-* 并在 JSON 导出与雷达图之间共享结果，可避免 `svg,png,json` 这类格式列表
-* 将雷达 API 请求翻倍。
-*
-* @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
-* @param datasets - Fetched datasets, one entry per repo / 抓取成功的数据集，每个仓库一条
-* @returns A map from `owner/repo` to its attributes, containing only the
-*   repos that fetched successfully / 从 `owner/repo` 到属性的映射，仅含抓取成功的仓库
-*/
+
 async function getRepoRadarAttributesMap(token, datasets) {
 	const settled = await Promise.allSettled(datasets.map(({ repo, records }) => getRepoRadarAttributes(repo, token, records)));
-	const attributesByRepo = /* @__PURE__ */ new Map();
+	const attributesByRepo =  new Map();
 	settled.forEach((result, i) => {
 		if (result.status === "fulfilled") attributesByRepo.set(datasets[i].repo, result.value);
 		else {
@@ -2110,18 +1256,9 @@ async function getRepoRadarAttributesMap(token, datasets) {
 	});
 	return attributesByRepo;
 }
-//#endregion
-//#region src/index.ts
-/**
-* Runs the full action pipeline: parse → fetch → render → write → commit/push.
-*
-* 运行动作的完整流水线：解析 → 抓取 → 渲染 → 写入 → 提交/推送。
-*
-* @throws {Error} When any pipeline step fails / 当流水线任一步骤失败时抛出
-* @example
-* // Entry of the composite action; failures are reported via setFailed.
-* void main()
-*/
+
+
+
 async function run() {
 	const config = parseInputs();
 	if (!GITHUB_WORKSPACE) throw new Error("GITHUB_WORKSPACE is not set: the action must run on a GitHub runner");
@@ -2195,5 +1332,5 @@ async function main() {
 	}
 }
 main();
-//#endregion
+
 export {};

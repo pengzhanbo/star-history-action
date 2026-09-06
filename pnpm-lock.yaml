@@ -185,6 +185,9 @@ importers:
       conventional-changelog-angular:
         specifier: ^9.4.0
         version: 9.4.0
+      js-tokens:
+        specifier: ^10.0.0
+        version: 10.0.0
       nano-staged:
         specifier: ^1.0.2
         version: 1.0.2
