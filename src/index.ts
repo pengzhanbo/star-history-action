@@ -16,7 +16,7 @@ import { GITHUB_WORKSPACE } from './services/env.js'
 import { fetchDatasets } from './services/fetch.js'
 import { commitAndPush } from './services/git.js'
 import { writeJsonExport } from './services/json-export.js'
-import { getRepoRadarAttributes } from './services/radar.js'
+import { getRepoRadarAttributesMap } from './services/radar.js'
 
 /**
  * Runs the full action pipeline: parse → fetch → render → write → commit/push.
@@ -57,19 +57,33 @@ async function run(): Promise<void> {
   await mkdir(outDir, { recursive: true })
 
   const files: string[] = []
-  if (config.outputFormat === 'json') {
-    // JSON output: structured data instead of charts. No avatar was fetched
-    // above (includeLogo is false), so this branch only touches the records.
-    // JSON 输出：以结构化数据代替图表。上方未抓取头像（includeLogo 为
-    // false），因此此分支只接触记录。
-    files.push(await writeJsonExport(config, datasets, outDir, workspace))
-  } else {
-    // Rasterize via resvg, which loads the xkcd font from assets/xkcd.ttf so
-    // the PNG text style matches the SVG (librsvg ignores the inlined
-    // @font-face).
+  // Fetch radar metrics once per repo, shared by the JSON export (when `json`
+  // is in the format list) and the radar charts — a mixed list like
+  // `svg,png,json` must not double the radar API requests. Repos that fail the
+  // fetch are skipped with a warning, so the rest still export.
+  // 为每个仓库只抓取一次雷达指标，供 JSON 导出（格式列表含 `json` 时）与
+  // 雷达图共享——`svg,png,json` 这类混合列表不应让雷达 API 请求翻倍。
+  // 抓取失败的仓库以 warning 跳过，其余仓库照常导出。
+  const radarByRepo = config.radar ? await getRepoRadarAttributesMap(config.token, datasets) : null
+
+  // JSON export writes structured data instead of (or, with a mixed format
+  // list, alongside) charts. No avatar was fetched above when the list is pure
+  // json (includeLogo is false), so this branch only touches the records.
+  // JSON 导出以结构化数据代替图表（与图表混合的格式列表时则并存）。纯 json
+  // 列表时上方未抓取头像（includeLogo 为 false），因此此分支只接触记录。
+  if (config.outputFormat.includes('json')) {
+    files.push(await writeJsonExport(config, datasets, outDir, workspace, radarByRepo ?? undefined))
+  }
+
+  // Render the SVG families when the format list wants any of them; a pure
+  // `json` list writes no charts. `png` output still renders the SVG first —
+  // it is the rasterization source — then writes only the raster.
+  // 当格式列表需要任一图表格式时渲染图表；纯 `json` 列表不写图表。`png`
+  // 输出仍先渲染 SVG——它是栅格化的源——随后只写入栅格图。
+  if (config.outputFormat.includes('svg') || config.outputFormat.includes('png')) {
     for (const { theme, svgFile, pngFile } of getChartFilePaths(config)) {
       const svg = await renderStarHistorySvg({ datasets, theme, width: config.svgWidth })
-      if (config.outputFormat !== 'png') {
+      if (config.outputFormat.includes('svg')) {
         files.push(await writeOutput({ outDir, workspace, file: svgFile, content: svg }))
       }
       if (pngFile) {
@@ -80,15 +94,22 @@ async function run(): Promise<void> {
     }
 
     if (config.radar) {
-      for (const { repo, records } of datasets) {
-        const attributes = await getRepoRadarAttributes(repo, config.token, records)
-        // Radar follows the same output-format rules as the history chart: `svg`
-        // writes SVGs only, `png` only PNGs, `both` both — named per theme/repo.
-        // 雷达图遵循与历史图相同的 output-format 规则：`svg` 仅写 SVG，`png`
-        // 仅写 PNG，`both` 两者都写——按主题/仓库分别命名。
+      for (const { repo } of datasets) {
+        // Reuse the attributes fetched above; a repo the fetch skipped already
+        // got its warning, so no radar chart is written for it.
+        // 复用上方预取的属性；抓取被跳过的仓库已记录 warning，不再为其写雷达图。
+        const attributes = radarByRepo?.get(repo)
+        if (!attributes) {
+          continue
+        }
+        // Radar follows the same format list as the history chart: the per-
+        // theme SVG is written only for the `svg` format, the PNG twin only
+        // for `png`, named per theme/repo.
+        // 雷达图遵循与历史图相同的格式列表：仅 `svg` 格式写入按主题/仓库命名
+        // 的 SVG，仅 `png` 格式写入 PNG 孪生文件。
         for (const { theme, svgFile, pngFile } of getRadarFilePaths(config, repo)) {
           const svg = await renderRadarSvg(attributes, { theme })
-          if (config.outputFormat !== 'png') {
+          if (config.outputFormat.includes('svg')) {
             files.push(await writeOutput({ outDir, workspace, file: svgFile, content: svg }))
           }
           if (pngFile) {

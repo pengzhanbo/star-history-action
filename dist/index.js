@@ -1106,17 +1106,28 @@ const THEMES = ["light", "dark"];
 * Output formats the action can write.
 *
 * `json` exports the fetched records as structured data instead of charts.
+* The legacy `both` value is not part of the set; it is parsed as an alias for
+* `svg,png` (see {@link OUTPUT_FORMAT_ALIASES}).
 *
 * 动作可输出的文件格式。
 *
 * `json` 将抓取的记录以结构化数据导出，而非图表。
+* 遗留的 `both` 值不在集合内；它被解析为 `svg,png` 的别名
+* （见 {@link OUTPUT_FORMAT_ALIASES}）。
 */
 const OUTPUT_FORMATS = [
 	"svg",
 	"png",
-	"both",
 	"json"
 ];
+/**
+* Backwards-compatible aliases for format lists: `both` expands to the SVG +
+* PNG pair, mirroring the pre-multi-format single-value input.
+*
+* 格式列表的向后兼容别名：`both` 展开为 SVG + PNG 组合，对应多格式输入
+* 之前的单一取值。
+*/
+const OUTPUT_FORMAT_ALIASES = { both: ["svg", "png"] };
 /**
 * Type guard narrowing a string to a known chart theme.
 *
@@ -1134,10 +1145,37 @@ function isTheme(value) {
 * 将字符串收窄为已知输出格式的类型守卫。
 *
 * @param value - Format string to validate / 待校验的格式字符串
-* @returns True when the value is `svg`, `png`, `both`, or `json` / 当值为 `svg`、`png`、`both` 或 `json` 时为真
+* @returns True when the value is `svg`, `png`, or `json` / 当值为 `svg`、`png` 或 `json` 时为真
 */
 function isOutputFormat(value) {
 	return OUTPUT_FORMATS.includes(value);
+}
+/**
+* Parses the `output-format` input into a deduped format list. Comma/space-
+* separated entries (svg, png, json) allow generating several formats in one
+* run; `both` is kept as a legacy alias for `svg,png`. Each entry is trimmed,
+* lowercased, expanded through the alias table, and deduped — the same policy
+* as `theme`. An empty input defaults to `svg`.
+*
+* 将 `output-format` 输入解析为去重后的格式列表。逗号/空格分隔的多个格式
+* （svg、png、json）允许一次运行生成多种格式；`both` 保留为 `svg,png` 的
+* 遗留别名。每个条目逐个去空白、转小写、经别名表展开并去重——与 `theme`
+* 相同的策略。空输入默认为 `svg`。
+*
+* @param raw - Raw input value (or `''` when the input is absent) / 原始输入值（输入缺省时为 `''`）
+* @returns The deduped format list (always non-empty) / 去重后的格式列表（恒非空）
+* @throws {Error} When a fragment is not a known format / 当某个片段不是已知格式时抛出
+*/
+function parseOutputFormats(raw) {
+	const formats = [];
+	for (const fragment of raw.split(/[,，\s]+/)) {
+		const value = fragment.trim().toLowerCase();
+		if (!value) continue;
+		const expanded = OUTPUT_FORMAT_ALIASES[value] ?? (isOutputFormat(value) ? [value] : null);
+		if (!expanded) throw new Error(`output-format "${fragment}" is invalid; use svg, png, json, or both`);
+		for (const format of expanded) if (!formats.includes(format)) formats.push(format);
+	}
+	return formats;
 }
 /**
 * Parses a `true`/`false` action input (case- and whitespace-insensitive,
@@ -1184,9 +1222,7 @@ function parseInputs() {
 	const outputFilename = getInput("output-filename") || "star-history.svg";
 	if (outputFilename.length === 0 || outputFilename.includes("/") || outputFilename.includes("\\")) throw new Error(`output-filename must be a file name without path separators, got "${outputFilename}"`);
 	if (!/\.svg$/i.test(outputFilename)) throw new Error(`output-filename must end with .svg, got "${outputFilename}"`);
-	const rawFormat = getInput("output-format") || "svg";
-	const outputFormat = rawFormat.trim().toLowerCase();
-	if (!isOutputFormat(outputFormat)) throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, both, or json`);
+	const outputFormat = parseOutputFormats(getInput("output-format") || "svg");
 	const radar = parseBooleanInput("radar");
 	const cache = parseBooleanInput("cache");
 	const rawWidth = getInput("svg-width") || "960";
@@ -1211,7 +1247,7 @@ function parseInputs() {
 		themes,
 		radar,
 		cache,
-		includeLogo: outputFormat !== "json"
+		includeLogo: outputFormat.some((format) => format !== "json")
 	};
 }
 /**
@@ -1220,19 +1256,19 @@ function parseInputs() {
 * 将请求的主题映射为具体的图表文件名。
 *
 * @param config - Parsed action inputs / 解析后的动作输入
-* @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
-*   modes, `.png`) file names: single-theme runs keep the input filename;
-*   multi-theme runs derive `-light`/`-dark` variants. `json` output writes no
-*   charts, so it maps to an empty list. /
-*   每个主题一个条目，包含派生的 `.svg`（以及 `png`/`both` 模式下的 `.png`）
+* @returns One entry per theme with the derived `.svg` (and, when the format
+*   list includes `png`, `.png`) file names: single-theme runs keep the input
+*   filename; multi-theme runs derive `-light`/`-dark` variants. A pure `json`
+*   export writes no charts, so it maps to an empty list. /
+*   每个主题一个条目，包含派生的 `.svg`（以及格式列表包含 `png` 时的 `.png`）
 *   文件名：单主题运行保留输入文件名；多主题运行派生 `-light`/`-dark` 变体。
-*   `json` 输出不写图表，映射为空列表。
+*   纯 `json` 导出不写图表，映射为空列表。
 * @example
 * getChartFilePaths({ ...themes: ['light', 'dark'], outputFilename: 'chart.svg' })
 * // [{ theme: 'light', svgFile: 'chart-light.svg' }, { theme: 'dark', svgFile: 'chart-dark.svg' }]
 */
 function getChartFilePaths(config) {
-	if (config.outputFormat === "json") return [];
+	if (config.outputFormat.every((format) => format === "json")) return [];
 	return (config.themes.length === 1 ? [{
 		theme: config.themes[0],
 		svgFile: config.outputFilename
@@ -1252,7 +1288,7 @@ function getChartFilePaths(config) {
 			theme,
 			svgFile
 		};
-		if (config.outputFormat !== "svg") output.pngFile = svgFile.replace(/\.svg$/i, ".png");
+		if (config.outputFormat.includes("png")) output.pngFile = svgFile.replace(/\.svg$/i, ".png");
 		return output;
 	});
 }
@@ -1325,19 +1361,20 @@ function getRadarFileName(config, repo, theme) {
 /**
 * Maps the requested themes to concrete radar chart file names for one repo,
 * reusing the same naming rules as {@link getChartFilePaths}: theme suffixes
-* for multi-theme runs, and `.png` derivation for `png`/`both` output formats.
+* for multi-theme runs, and `.png` derivation when the format list includes
+* `png`.
 *
 * 将请求的主题映射为某个仓库的雷达图具体文件名，复用
-* {@link getChartFilePaths} 的命名规则：多主题运行追加主题后缀，`png`/`both`
-* 输出格式派生 `.png` 文件名。
+* {@link getChartFilePaths} 的命名规则：多主题运行追加主题后缀，格式列表
+* 包含 `png` 时派生 `.png` 文件名。
 *
 * @param config - Parsed action inputs / 解析后的动作输入
 * @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
-* @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
-*   modes, `.png`) radar file names / 每个主题一个条目，包含派生的 `.svg`
-*   （以及 `png`/`both` 模式下的 `.png`）雷达图文件名
+* @returns One entry per theme with the derived `.svg` (and, when the format
+*   list includes `png`, `.png`) radar file names / 每个主题一个条目，包含派生的
+*   `.svg`（以及格式列表包含 `png` 时的 `.png`）雷达图文件名
 * @example
-* getRadarFilePaths({ ...themes: ['light', 'dark'], outputFormat: 'both', repos: ['a/b'] }, 'a/b')
+* getRadarFilePaths({ ...themes: ['light', 'dark'], outputFormat: ['svg', 'png'], repos: ['a/b'] }, 'a/b')
 * // [
 * //   { theme: 'light', svgFile: 'star-history-radar-light.svg', pngFile: 'star-history-radar-light.png' },
 * //   { theme: 'dark', svgFile: 'star-history-radar-dark.svg', pngFile: 'star-history-radar-dark.png' },
@@ -1901,6 +1938,54 @@ function commitAndPush({ cwd, files, token }) {
 	]);
 }
 //#endregion
+//#region src/services/json-export.ts
+/**
+* Writes the JSON data export: every repo's records (plus radar scores when
+* `radar` is enabled and the pre-fetched attributes exist for that repo) as
+* structured data, and returns its workspace-relative path for the commit file
+* list. Radar attributes are fetched once up front by the caller — a repo the
+* fetch skipped simply has no `radar` block, matching the radar-fetch failure
+* semantics of the previous per-branch fetch.
+*
+* 写入 JSON 数据导出：将每个仓库的记录（开启 `radar` 且调用方预取的属性中
+* 存在该仓库时附带雷达分数）以结构化数据写出，并返回其工作区相对路径用于
+* 提交文件列表。雷达属性由调用方统一预取一次——抓取被跳过的仓库不包含
+* `radar` 数据块，与原分支各自抓取时的失败语义一致。
+*
+* @param config - Parsed action inputs / 解析后的动作输入
+* @param datasets - Successfully fetched datasets / 抓取成功的数据集
+* @param outDir - Output directory / 输出目录
+* @param workspace - GitHub workspace root / GitHub 工作区根
+* @param radarByRepo - Pre-fetched radar attributes per repo (absent when
+*   `radar` is off); the map only holds repos that fetched successfully /
+*   按仓库索引的预取雷达属性（`radar` 关闭时缺省）；映射仅含抓取成功的仓库
+* @returns Workspace-relative path of the written JSON file / 已写入 JSON 文件的工作区相对路径
+*/
+async function writeJsonExport(config, datasets, outDir, workspace, radarByRepo) {
+	const repos = [];
+	for (const { repo, records } of datasets) {
+		const entry = {
+			repo,
+			records
+		};
+		if (config.radar) {
+			const radar = radarByRepo?.get(repo);
+			if (radar) entry.radar = radar;
+		}
+		repos.push(entry);
+	}
+	const json = JSON.stringify({
+		updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+		repos
+	}, null, 2);
+	return writeOutput({
+		outDir,
+		workspace,
+		file: getJsonFileName(config),
+		content: json
+	});
+}
+//#endregion
 //#region src/services/radar.ts
 const API_BASE = GITHUB_API_URL.replace(/\/+$/, "");
 /**
@@ -1996,49 +2081,34 @@ async function getRepoRadarAttributes(repo, token, records) {
 		forks: percentileOf(repoData.forks_count ?? 0)
 	};
 }
-//#endregion
-//#region src/services/json-export.ts
 /**
-* Writes the JSON data export: every repo's records (plus radar scores when
-* `radar` is enabled) as structured data, and returns its workspace-relative
-* path for the commit file list. A radar fetch failure skips that repo's radar
-* block instead of failing the export.
+* Fetches the radar attributes for every dataset in parallel, once per repo.
+* A failing repo is skipped with a warning (mirroring `fetchDatasets`'
+* partial-success policy) so the survivors still export — calling this once and
+* sharing the result between the JSON export and the radar charts keeps a
+* format list like `svg,png,json` from doubling the radar API requests.
 *
-* 写入 JSON 数据导出：将每个仓库的记录（开启 `radar` 时附带雷达分数）以
-* 结构化数据写出，并返回其工作区相对路径用于提交文件列表。雷达抓取失败
-* 仅跳过该仓库的 radar 数据块，不会使导出失败。
+* 为每个数据集并行抓取雷达属性，每个仓库只抓取一次。失败的仓库以 warning
+* 跳过（沿用 `fetchDatasets` 的部分成功策略），其余仓库照常导出——调用一次
+* 并在 JSON 导出与雷达图之间共享结果，可避免 `svg,png,json` 这类格式列表
+* 将雷达 API 请求翻倍。
 *
-* @param config - Parsed action inputs / 解析后的动作输入
-* @param datasets - Successfully fetched datasets / 抓取成功的数据集
-* @param outDir - Output directory / 输出目录
-* @param workspace - GitHub workspace root / GitHub 工作区根
-* @returns Workspace-relative path of the written JSON file / 已写入 JSON 文件的工作区相对路径
+* @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
+* @param datasets - Fetched datasets, one entry per repo / 抓取成功的数据集，每个仓库一条
+* @returns A map from `owner/repo` to its attributes, containing only the
+*   repos that fetched successfully / 从 `owner/repo` 到属性的映射，仅含抓取成功的仓库
 */
-async function writeJsonExport(config, datasets, outDir, workspace) {
-	const repos = [];
-	for (const { repo, records } of datasets) {
-		const entry = {
-			repo,
-			records
-		};
-		if (config.radar) try {
-			entry.radar = await getRepoRadarAttributes(repo, config.token, records);
-		} catch (error) {
-			const reason = error instanceof Error ? error.message : String(error);
-			warning(`skip radar metrics for ${repo}: ${reason}`);
+async function getRepoRadarAttributesMap(token, datasets) {
+	const settled = await Promise.allSettled(datasets.map(({ repo, records }) => getRepoRadarAttributes(repo, token, records)));
+	const attributesByRepo = /* @__PURE__ */ new Map();
+	settled.forEach((result, i) => {
+		if (result.status === "fulfilled") attributesByRepo.set(datasets[i].repo, result.value);
+		else {
+			const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+			warning(`skip radar metrics for ${datasets[i].repo}: ${reason}`);
 		}
-		repos.push(entry);
-	}
-	const json = JSON.stringify({
-		updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-		repos
-	}, null, 2);
-	return writeOutput({
-		outDir,
-		workspace,
-		file: getJsonFileName(config),
-		content: json
 	});
+	return attributesByRepo;
 }
 //#endregion
 //#region src/index.ts
@@ -2062,15 +2132,16 @@ async function run() {
 	const datasets = await fetchDatasets(config, (config.cache ? await readCacheRecords(resolve(outDir, getCacheFileName(config))) : null) ?? void 0);
 	await mkdir(outDir, { recursive: true });
 	const files = [];
-	if (config.outputFormat === "json") files.push(await writeJsonExport(config, datasets, outDir, workspace));
-	else {
+	const radarByRepo = config.radar ? await getRepoRadarAttributesMap(config.token, datasets) : null;
+	if (config.outputFormat.includes("json")) files.push(await writeJsonExport(config, datasets, outDir, workspace, radarByRepo ?? void 0));
+	if (config.outputFormat.includes("svg") || config.outputFormat.includes("png")) {
 		for (const { theme, svgFile, pngFile } of getChartFilePaths(config)) {
 			const svg = await renderStarHistorySvg({
 				datasets,
 				theme,
 				width: config.svgWidth
 			});
-			if (config.outputFormat !== "png") files.push(await writeOutput({
+			if (config.outputFormat.includes("svg")) files.push(await writeOutput({
 				outDir,
 				workspace,
 				file: svgFile,
@@ -2083,11 +2154,12 @@ async function run() {
 				content: await rasterizeSvg(svg)
 			}));
 		}
-		if (config.radar) for (const { repo, records } of datasets) {
-			const attributes = await getRepoRadarAttributes(repo, config.token, records);
+		if (config.radar) for (const { repo } of datasets) {
+			const attributes = radarByRepo?.get(repo);
+			if (!attributes) continue;
 			for (const { theme, svgFile, pngFile } of getRadarFilePaths(config, repo)) {
 				const svg = await renderRadarSvg(attributes, { theme });
-				if (config.outputFormat !== "png") files.push(await writeOutput({
+				if (config.outputFormat.includes("svg")) files.push(await writeOutput({
 					outDir,
 					workspace,
 					file: svgFile,

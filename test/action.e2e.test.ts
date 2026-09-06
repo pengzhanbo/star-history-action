@@ -392,6 +392,30 @@ describe('action end-to-end (mock GitHub API)', () => {
     expect(ownerRepo.radar.stars).toBeTypeOf('number')
   })
 
+  it('writes several formats at once for output-format svg,png,json', async () => {
+    // A dedicated output-filename keeps this case isolated from the charts the
+    // earlier cases left in the shared workspace.
+    const result = await runAction({
+      'INPUT_OUTPUT-FORMAT': 'svg,png,json',
+      'INPUT_REPO': 'owner/repo, other/repo',
+      'INPUT_THEME': 'light',
+      'INPUT_OUTPUT-FILENAME': 'multi.svg',
+    })
+    expect(result.stderr).toBe('')
+    expectSuccess(result)
+    // All three formats land in the same run, sharing one fetch.
+    expect(result.stdout).toContain('wrote assets/multi.svg')
+    expect(result.stdout).toContain('wrote assets/multi.png')
+    expect(result.stdout).toContain('wrote assets/multi.json')
+
+    const png = readFileSync(join(workspace, 'assets/multi.png'))
+    // PNG magic bytes; proves a real rasterization happened rather than a byte copy.
+    expect(png.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+
+    const data = JSON.parse(readFileSync(join(workspace, 'assets/multi.json'), 'utf8'))
+    expect(data.repos).toHaveLength(2)
+  })
+
   it('skips a failing repo and still charts the survivors', async () => {
     const result = await runAction({
       'INPUT_REPO': 'owner/repo, nope/repo',

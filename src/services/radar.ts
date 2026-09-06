@@ -1,4 +1,5 @@
 import type { RepoAttributes } from '../charts/radar-svg.js'
+import { warning } from '@actions/core'
 import { API_PER_PAGE } from '../common/constants.js'
 import { parseLastPage, request } from './api.js'
 import { GITHUB_API_URL } from './env.js'
@@ -128,4 +129,50 @@ export async function getRepoRadarAttributes(
     issues_closed: percentileOf(issuesClosed),
     forks: percentileOf(repoData.forks_count ?? 0),
   }
+}
+
+/**
+ * One dataset's star records — all `getRepoRadarAttributes` needs from it.
+ *
+ * 单个数据集的 star 记录——`getRepoRadarAttributes` 所需的全部数据。
+ */
+interface RadarDataset {
+  repo: string
+  records: { date: string; stars: number }[]
+}
+
+/**
+ * Fetches the radar attributes for every dataset in parallel, once per repo.
+ * A failing repo is skipped with a warning (mirroring `fetchDatasets`'
+ * partial-success policy) so the survivors still export — calling this once and
+ * sharing the result between the JSON export and the radar charts keeps a
+ * format list like `svg,png,json` from doubling the radar API requests.
+ *
+ * 为每个数据集并行抓取雷达属性，每个仓库只抓取一次。失败的仓库以 warning
+ * 跳过（沿用 `fetchDatasets` 的部分成功策略），其余仓库照常导出——调用一次
+ * 并在 JSON 导出与雷达图之间共享结果，可避免 `svg,png,json` 这类格式列表
+ * 将雷达 API 请求翻倍。
+ *
+ * @param token - GitHub token for authentication / 用于认证的 GitHub 令牌
+ * @param datasets - Fetched datasets, one entry per repo / 抓取成功的数据集，每个仓库一条
+ * @returns A map from `owner/repo` to its attributes, containing only the
+ *   repos that fetched successfully / 从 `owner/repo` 到属性的映射，仅含抓取成功的仓库
+ */
+export async function getRepoRadarAttributesMap(
+  token: string,
+  datasets: RadarDataset[],
+): Promise<Map<string, RepoAttributes>> {
+  const settled = await Promise.allSettled(
+    datasets.map(({ repo, records }) => getRepoRadarAttributes(repo, token, records)),
+  )
+  const attributesByRepo = new Map<string, RepoAttributes>()
+  settled.forEach((result, i) => {
+    if (result.status === 'fulfilled') {
+      attributesByRepo.set(datasets[i]!.repo, result.value)
+    } else {
+      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason)
+      warning(`skip radar metrics for ${datasets[i]!.repo}: ${reason}`)
+    }
+  })
+  return attributesByRepo
 }

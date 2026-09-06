@@ -40,7 +40,7 @@ describe('parseInputs', () => {
       token: 't0k3n',
       outputDirectory: 'assets',
       outputFilename: 'star-history.svg',
-      outputFormat: 'svg',
+      outputFormat: ['svg'],
       svgWidth: 960,
       themes: ['light'],
       radar: false,
@@ -164,13 +164,19 @@ describe('parseInputs', () => {
     expect(() => parseInputs()).toThrow('theme "blue" is invalid')
   })
 
-  it.each(['png', 'both', 'PNG', ' Both '])(
-    'accepts output-format %s (lowercased and trimmed)',
-    async (format) => {
+  it.each([
+    ['png', ['png']],
+    ['PNG', ['png']],
+    [' png ', ['png']],
+    ['both', ['svg', 'png']],
+    [' Both ', ['svg', 'png']],
+  ] as const)(
+    'accepts output-format %s (lowercased, trimmed, alias-expanded)',
+    async (format, expected) => {
       stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': format })
       const parseInputs = await loadParseInputs()
 
-      expect(parseInputs().outputFormat).toBe(format.trim().toLowerCase())
+      expect(parseInputs().outputFormat).toEqual(expected)
       expect(parseInputs().includeLogo).toBe(true)
     },
   )
@@ -179,12 +185,42 @@ describe('parseInputs', () => {
     stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': ' JSON ' })
     const parseInputs = await loadParseInputs()
 
-    expect(parseInputs().outputFormat).toBe('json')
+    expect(parseInputs().outputFormat).toEqual(['json'])
     expect(parseInputs().includeLogo).toBe(false)
+  })
+
+  it('parses comma and whitespace separated output formats', async () => {
+    stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': ' svg, PNG , json ' })
+    const parseInputs = await loadParseInputs()
+
+    expect(parseInputs().outputFormat).toEqual(['svg', 'png', 'json'])
+    expect(parseInputs().includeLogo).toBe(true)
+  })
+
+  it('accepts the full-width comma as an output-format separator', async () => {
+    stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': 'svg，json' })
+    const parseInputs = await loadParseInputs()
+
+    expect(parseInputs().outputFormat).toEqual(['svg', 'json'])
+    expect(parseInputs().includeLogo).toBe(true)
+  })
+
+  it('ignores empty fragments and dedupes output formats', async () => {
+    stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': 'svg, svg, , both, json' })
+    const parseInputs = await loadParseInputs()
+
+    expect(parseInputs().outputFormat).toEqual(['svg', 'png', 'json'])
   })
 
   it('throws on an unknown output-format', async () => {
     stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': 'webp' })
+    const parseInputs = await loadParseInputs()
+
+    expect(() => parseInputs()).toThrow('output-format "webp" is invalid')
+  })
+
+  it('throws when any fragment of a format list is unknown', async () => {
+    stubInputs({ 'repo': 'owner/repo', 'token': 't', 'output-format': 'svg, webp' })
     const parseInputs = await loadParseInputs()
 
     expect(() => parseInputs()).toThrow('output-format "webp" is invalid')
@@ -242,7 +278,7 @@ describe('getChartFilePaths', () => {
     token: 't',
     outputDirectory: 'assets',
     outputFilename: 'star-history.svg',
-    outputFormat: 'svg',
+    outputFormat: ['svg'],
     svgWidth: 960,
     themes: ['light'],
     radar: false,
@@ -276,17 +312,17 @@ describe('getChartFilePaths', () => {
     ])
   })
 
-  it('derives a .png file for output-format png', () => {
-    expect(getChartFilePaths({ ...baseConfig, outputFormat: 'png' })).toEqual([
+  it('derives a .png file when the format list includes png', () => {
+    expect(getChartFilePaths({ ...baseConfig, outputFormat: ['png'] })).toEqual([
       { theme: 'light', svgFile: 'star-history.svg', pngFile: 'star-history.png' },
     ])
   })
 
-  it('derives per-theme .png files for output-format both', () => {
+  it('derives per-theme .png files when the format list includes svg and png', () => {
     expect(
       getChartFilePaths({
         ...baseConfig,
-        outputFormat: 'both',
+        outputFormat: ['svg', 'png'],
         themes: ['light', 'dark'],
       }),
     ).toEqual([
@@ -295,11 +331,23 @@ describe('getChartFilePaths', () => {
     ])
   })
 
-  it('maps output-format json to no chart files', () => {
+  it('keeps only the svg file when the format list mixes json with svg', () => {
+    expect(getChartFilePaths({ ...baseConfig, outputFormat: ['svg', 'json'] })).toEqual([
+      { theme: 'light', svgFile: 'star-history.svg' },
+    ])
+  })
+
+  it('still derives the png twin when the format list mixes json with png', () => {
+    expect(getChartFilePaths({ ...baseConfig, outputFormat: ['png', 'json'] })).toEqual([
+      { theme: 'light', svgFile: 'star-history.svg', pngFile: 'star-history.png' },
+    ])
+  })
+
+  it('maps a pure json format list to no chart files', () => {
     expect(
       getChartFilePaths({
         ...baseConfig,
-        outputFormat: 'json',
+        outputFormat: ['json'],
         themes: ['light', 'dark'],
       }),
     ).toEqual([])
@@ -312,7 +360,7 @@ describe('getJsonFileName', () => {
     token: 't',
     outputDirectory: 'assets',
     outputFilename: 'star-history.svg',
-    outputFormat: 'json',
+    outputFormat: ['json'],
     svgWidth: 960,
     themes: ['light'],
     radar: false,
@@ -339,7 +387,7 @@ describe('getCacheFileName', () => {
     token: 't',
     outputDirectory: 'assets',
     outputFilename: 'star-history.svg',
-    outputFormat: 'svg',
+    outputFormat: ['svg'],
     svgWidth: 960,
     themes: ['light'],
     radar: false,
@@ -370,7 +418,7 @@ describe('getRadarFileName', () => {
     token: 't',
     outputDirectory: 'assets',
     outputFilename: 'star-history.svg',
-    outputFormat: 'svg',
+    outputFormat: ['svg'],
     svgWidth: 960,
     themes: ['light'],
     radar: true,
@@ -421,7 +469,7 @@ describe('getRadarFilePaths', () => {
     token: 't',
     outputDirectory: 'assets',
     outputFilename: 'star-history.svg',
-    outputFormat: 'svg',
+    outputFormat: ['svg'],
     svgWidth: 960,
     themes: ['light'],
     radar: true,
@@ -455,8 +503,12 @@ describe('getRadarFilePaths', () => {
     ])
   })
 
-  it('adds a .png twin for png/both output formats', () => {
-    const both: ActionConfig = { ...baseConfig, outputFormat: 'both', themes: ['light', 'dark'] }
+  it('adds a .png twin when the format list includes png', () => {
+    const both: ActionConfig = {
+      ...baseConfig,
+      outputFormat: ['svg', 'png'],
+      themes: ['light', 'dark'],
+    }
 
     expect(getRadarFilePaths(both, 'owner/repo')).toEqual([
       {

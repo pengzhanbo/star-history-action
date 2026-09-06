@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getRepoRadarAttributes, newStarsInLastDays, percentileOf } from '../src/services/radar.js'
+import {
+  getRepoRadarAttributes,
+  getRepoRadarAttributesMap,
+  newStarsInLastDays,
+  percentileOf,
+} from '../src/services/radar.js'
 
 // radar.ts computes API_BASE from GITHUB_API_URL at module evaluation; pin it
 // so the asserted request URLs stay deterministic.
@@ -170,5 +175,74 @@ describe('getRepoRadarAttributes', () => {
     await expect(getRepoRadarAttributes('missing/repo', TOKEN, records)).rejects.toThrow(
       'Failed to get repo missing/repo info',
     )
+  })
+})
+
+describe('getRepoRadarAttributesMap', () => {
+  const day = 86_400_000
+  const today = Date.now()
+  const iso = (offsetDays: number): string =>
+    new Date(today - offsetDays * day).toISOString().slice(0, 10)
+  // new_stars = 0 (single record sits after the 30-day cutoff keeps the base).
+  const records = [{ date: iso(40), stars: 10 }]
+
+  it('fetches each repo once and indexes the results by repo', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL(callUrl(input))
+      if (url.pathname === '/repos/a/repo') {
+        return jsonResponse({ stargazers_count: 5_000, forks_count: 300 })
+      }
+      if (url.pathname === '/repos/b/repo') {
+        return jsonResponse({ stargazers_count: 100, forks_count: 10 })
+      }
+      if (url.pathname.endsWith('/contributors') || url.pathname.endsWith('/commits')) {
+        return jsonResponse([], lastLinkHeader(1))
+      }
+      if (url.pathname === '/search/issues') {
+        return jsonResponse({ total_count: 0 })
+      }
+      return jsonResponse({}, {}, 404)
+    })
+
+    const map = await getRepoRadarAttributesMap(TOKEN, [
+      { repo: 'a/repo', records },
+      { repo: 'b/repo', records },
+    ])
+
+    expect(map.size).toBe(2)
+    expect(map.get('a/repo')!.stars).toBe(41) // percentileOf(5000)
+    expect(map.get('b/repo')!.stars).toBe(22) // percentileOf(100)
+    // 2 repos × 4 requests each — exactly one fetch per repo
+    expect(fetchMock).toHaveBeenCalledTimes(8)
+  })
+
+  it('skips a failing repo and keeps the survivors', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL(callUrl(input))
+      if (url.pathname === '/repos/good/repo') {
+        return jsonResponse({ stargazers_count: 0, forks_count: 0 })
+      }
+      if (url.pathname.startsWith('/repos/missing/')) {
+        return jsonResponse({}, {}, 404)
+      }
+      if (url.pathname.endsWith('/contributors') || url.pathname.endsWith('/commits')) {
+        return jsonResponse([])
+      }
+      if (url.pathname === '/search/issues') {
+        return jsonResponse({ total_count: 0 })
+      }
+      return jsonResponse({}, {}, 404)
+    })
+
+    const map = await getRepoRadarAttributesMap(TOKEN, [
+      { repo: 'good/repo', records },
+      { repo: 'missing/repo', records },
+    ])
+
+    expect(map.size).toBe(1)
+    expect(map.has('good/repo')).toBe(true)
+    expect(map.has('missing/repo')).toBe(false)
+    // good/repo: 4 requests; missing/repo: 1 failing repo lookup then stops
+    expect(fetchMock).toHaveBeenCalledTimes(5)
   })
 })

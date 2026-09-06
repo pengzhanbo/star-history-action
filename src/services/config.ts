@@ -14,13 +14,28 @@ export type ChartTheme = (typeof THEMES)[number]
  * Output formats the action can write.
  *
  * `json` exports the fetched records as structured data instead of charts.
+ * The legacy `both` value is not part of the set; it is parsed as an alias for
+ * `svg,png` (see {@link OUTPUT_FORMAT_ALIASES}).
  *
  * 动作可输出的文件格式。
  *
  * `json` 将抓取的记录以结构化数据导出，而非图表。
+ * 遗留的 `both` 值不在集合内；它被解析为 `svg,png` 的别名
+ * （见 {@link OUTPUT_FORMAT_ALIASES}）。
  */
-export const OUTPUT_FORMATS = ['svg', 'png', 'both', 'json'] as const
+export const OUTPUT_FORMATS = ['svg', 'png', 'json'] as const
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number]
+
+/**
+ * Backwards-compatible aliases for format lists: `both` expands to the SVG +
+ * PNG pair, mirroring the pre-multi-format single-value input.
+ *
+ * 格式列表的向后兼容别名：`both` 展开为 SVG + PNG 组合，对应多格式输入
+ * 之前的单一取值。
+ */
+export const OUTPUT_FORMAT_ALIASES: Record<string, readonly OutputFormat[]> = {
+  both: ['svg', 'png'],
+}
 
 /**
  * Parsed and validated action inputs.
@@ -55,13 +70,16 @@ export interface ActionConfig {
    */
   outputFilename: string // default 'star-history.svg'
   /**
-   * File formats to write: `svg` (default), `png` (rasterized), `both`, or
-   * `json` (structured record data instead of charts).
+   * File formats to write: any combination of `svg` (default), `png`
+   * (rasterized) and `json` (structured record data instead of charts),
+   * comma/space separated to generate several at once; the legacy `both` alias
+   * expands to `svg,png`.
    *
-   * 要写入的文件格式：`svg`（默认）、`png`（栅格化）、`both`，或
-   * `json`（导出结构化记录数据而非图表）。
+   * 要写入的文件格式：`svg`（默认）、`png`（栅格化）、`json`（导出结构化
+   * 记录数据而非图表）的任意组合，逗号/空格分隔可一次生成多种；遗留别名
+   * `both` 展开为 `svg,png`。
    */
-  outputFormat: OutputFormat // default 'svg'
+  outputFormat: OutputFormat[] // default ['svg']
   /**
    * Width of the generated SVG in pixels.
    *
@@ -95,12 +113,12 @@ export interface ActionConfig {
   cache: boolean // default false
   /**
    * Whether the repo owner's avatar is needed as an inline chart logo. Only the
-   * SVG families use it, so `json` output can skip the extra request.
+   * SVG families use it, so a pure `json` export can skip the extra request.
    *
    * 是否需要仓库所有者的头像作为内联图表 logo。仅 SVG 图表家族需要它，
-   * 因此 `json` 输出可以跳过这个额外请求。
+   * 因此纯 `json` 导出可以跳过这个额外请求。
    */
-  includeLogo: boolean // = outputFormat !== 'json'
+  includeLogo: boolean // = outputFormat.some((format) => format !== 'json')
 }
 
 /**
@@ -121,10 +139,46 @@ function isTheme(value: string): value is ChartTheme {
  * 将字符串收窄为已知输出格式的类型守卫。
  *
  * @param value - Format string to validate / 待校验的格式字符串
- * @returns True when the value is `svg`, `png`, `both`, or `json` / 当值为 `svg`、`png`、`both` 或 `json` 时为真
+ * @returns True when the value is `svg`, `png`, or `json` / 当值为 `svg`、`png` 或 `json` 时为真
  */
 function isOutputFormat(value: string): value is OutputFormat {
   return (OUTPUT_FORMATS as readonly string[]).includes(value)
+}
+
+/**
+ * Parses the `output-format` input into a deduped format list. Comma/space-
+ * separated entries (svg, png, json) allow generating several formats in one
+ * run; `both` is kept as a legacy alias for `svg,png`. Each entry is trimmed,
+ * lowercased, expanded through the alias table, and deduped — the same policy
+ * as `theme`. An empty input defaults to `svg`.
+ *
+ * 将 `output-format` 输入解析为去重后的格式列表。逗号/空格分隔的多个格式
+ * （svg、png、json）允许一次运行生成多种格式；`both` 保留为 `svg,png` 的
+ * 遗留别名。每个条目逐个去空白、转小写、经别名表展开并去重——与 `theme`
+ * 相同的策略。空输入默认为 `svg`。
+ *
+ * @param raw - Raw input value (or `''` when the input is absent) / 原始输入值（输入缺省时为 `''`）
+ * @returns The deduped format list (always non-empty) / 去重后的格式列表（恒非空）
+ * @throws {Error} When a fragment is not a known format / 当某个片段不是已知格式时抛出
+ */
+function parseOutputFormats(raw: string): OutputFormat[] {
+  const formats: OutputFormat[] = []
+  for (const fragment of raw.split(/[,，\s]+/)) {
+    const value = fragment.trim().toLowerCase()
+    if (!value) {
+      continue
+    }
+    const expanded = OUTPUT_FORMAT_ALIASES[value] ?? (isOutputFormat(value) ? [value] : null)
+    if (!expanded) {
+      throw new Error(`output-format "${fragment}" is invalid; use svg, png, json, or both`)
+    }
+    for (const format of expanded) {
+      if (!formats.includes(format)) {
+        formats.push(format)
+      }
+    }
+  }
+  return formats
 }
 
 /**
@@ -205,11 +259,12 @@ export function parseInputs(): ActionConfig {
     throw new Error(`output-filename must end with .svg, got "${outputFilename}"`)
   }
 
-  const rawFormat = getInput('output-format') || 'svg'
-  const outputFormat = rawFormat.trim().toLowerCase()
-  if (!isOutputFormat(outputFormat)) {
-    throw new Error(`output-format "${rawFormat}" is invalid; use svg, png, both, or json`)
-  }
+  // The output-format input accepts comma/space-separated entries (svg, png,
+  // json) so several formats can be generated in one run; `both` is kept as a
+  // legacy alias for `svg,png` (see parseOutputFormats).
+  // output-format 输入接受逗号/空格分隔的多个格式（svg、png、json），一次运行
+  // 可生成多种格式；`both` 保留为 `svg,png` 的遗留别名（见 parseOutputFormats）。
+  const outputFormat = parseOutputFormats(getInput('output-format') || 'svg')
 
   const radar = parseBooleanInput('radar')
 
@@ -251,23 +306,24 @@ export function parseInputs(): ActionConfig {
     themes,
     radar,
     cache,
-    includeLogo: outputFormat !== 'json',
+    includeLogo: outputFormat.some((format) => format !== 'json'),
   }
 }
 
 /**
  * Chart output file for one theme: the SVG is always derived (it is the
- * rasterization source); the PNG exists only when output-format is png/both.
+ * rasterization source); the PNG exists only when the format list includes
+ * `png`.
  *
- * 单个主题的图表输出文件：始终派生 SVG（它是栅格化的源）；仅当
- * output-format 为 png/both 时才派生 PNG。
+ * 单个主题的图表输出文件：始终派生 SVG（它是栅格化的源）；仅当格式列表
+ * 包含 `png` 时才派生 PNG。
  */
 export interface ChartFileOutput {
   /** Theme this file belongs to / 该文件所属的主题。 */
   theme: ChartTheme
   /** Derived `.svg` file name / 派生出的 `.svg` 文件名。 */
   svgFile: string
-  /** Derived `.png` file name; absent for output-format `svg` / 派生出的 `.png` 文件名；`svg` 模式不存在。 */
+  /** Derived `.png` file name; absent unless the format list includes `png` / 派生出的 `.png` 文件名；格式列表未含 `png` 时缺省。 */
   pngFile?: string
 }
 
@@ -277,19 +333,21 @@ export interface ChartFileOutput {
  * 将请求的主题映射为具体的图表文件名。
  *
  * @param config - Parsed action inputs / 解析后的动作输入
- * @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
- *   modes, `.png`) file names: single-theme runs keep the input filename;
- *   multi-theme runs derive `-light`/`-dark` variants. `json` output writes no
- *   charts, so it maps to an empty list. /
- *   每个主题一个条目，包含派生的 `.svg`（以及 `png`/`both` 模式下的 `.png`）
+ * @returns One entry per theme with the derived `.svg` (and, when the format
+ *   list includes `png`, `.png`) file names: single-theme runs keep the input
+ *   filename; multi-theme runs derive `-light`/`-dark` variants. A pure `json`
+ *   export writes no charts, so it maps to an empty list. /
+ *   每个主题一个条目，包含派生的 `.svg`（以及格式列表包含 `png` 时的 `.png`）
  *   文件名：单主题运行保留输入文件名；多主题运行派生 `-light`/`-dark` 变体。
- *   `json` 输出不写图表，映射为空列表。
+ *   纯 `json` 导出不写图表，映射为空列表。
  * @example
  * getChartFilePaths({ ...themes: ['light', 'dark'], outputFilename: 'chart.svg' })
  * // [{ theme: 'light', svgFile: 'chart-light.svg' }, { theme: 'dark', svgFile: 'chart-dark.svg' }]
  */
 export function getChartFilePaths(config: ActionConfig): ChartFileOutput[] {
-  if (config.outputFormat === 'json') {
+  // A pure `json` export writes no charts; only a format list holding at least
+  // one SVG-family entry (svg/png) derives chart files.
+  if (config.outputFormat.every((format) => format === 'json')) {
     return []
   }
   const themeFiles =
@@ -307,7 +365,7 @@ export function getChartFilePaths(config: ActionConfig): ChartFileOutput[] {
   return themeFiles.map(({ theme, svgFile }) => {
     const output: ChartFileOutput = { theme, svgFile }
     // exactOptionalPropertyTypes: only set pngFile when it exists.
-    if (config.outputFormat !== 'svg') {
+    if (config.outputFormat.includes('png')) {
       output.pngFile = svgFile.replace(/\.svg$/i, '.png')
     }
     return output
@@ -390,19 +448,20 @@ export function getRadarFileName(config: ActionConfig, repo: string, theme?: Cha
 /**
  * Maps the requested themes to concrete radar chart file names for one repo,
  * reusing the same naming rules as {@link getChartFilePaths}: theme suffixes
- * for multi-theme runs, and `.png` derivation for `png`/`both` output formats.
+ * for multi-theme runs, and `.png` derivation when the format list includes
+ * `png`.
  *
  * 将请求的主题映射为某个仓库的雷达图具体文件名，复用
- * {@link getChartFilePaths} 的命名规则：多主题运行追加主题后缀，`png`/`both`
- * 输出格式派生 `.png` 文件名。
+ * {@link getChartFilePaths} 的命名规则：多主题运行追加主题后缀，格式列表
+ * 包含 `png` 时派生 `.png` 文件名。
  *
  * @param config - Parsed action inputs / 解析后的动作输入
  * @param repo - Repository in `owner/repo` form / `owner/repo` 形式的仓库标识
- * @returns One entry per theme with the derived `.svg` (and, for `png`/`both`
- *   modes, `.png`) radar file names / 每个主题一个条目，包含派生的 `.svg`
- *   （以及 `png`/`both` 模式下的 `.png`）雷达图文件名
+ * @returns One entry per theme with the derived `.svg` (and, when the format
+ *   list includes `png`, `.png`) radar file names / 每个主题一个条目，包含派生的
+ *   `.svg`（以及格式列表包含 `png` 时的 `.png`）雷达图文件名
  * @example
- * getRadarFilePaths({ ...themes: ['light', 'dark'], outputFormat: 'both', repos: ['a/b'] }, 'a/b')
+ * getRadarFilePaths({ ...themes: ['light', 'dark'], outputFormat: ['svg', 'png'], repos: ['a/b'] }, 'a/b')
  * // [
  * //   { theme: 'light', svgFile: 'star-history-radar-light.svg', pngFile: 'star-history-radar-light.png' },
  * //   { theme: 'dark', svgFile: 'star-history-radar-dark.svg', pngFile: 'star-history-radar-dark.png' },
