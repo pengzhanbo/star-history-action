@@ -5,10 +5,23 @@ English | [简体中文](README.zh-CN.md)
 A GitHub Action that fetches a repository's star history and commits an
 xkcd-style SVG chart back into the repository.
 
+Here is an example of the generated chart:
+
+<picture>
+  <source
+    media="(prefers-color-scheme: dark)"
+    srcset="assets/example/star-history-dark.svg"
+  >
+  <img
+    alt="Star History"
+    src="assets/example/star-history-light.svg"
+  >
+</picture>
+
 ## Getting Started
 
-Add the action to a workflow. The example below refreshes the chart on a
-schedule and on every push to `main`:
+Add the action to a workflow in the repository you want to track. The example
+below refreshes the chart every day and on every push to `main`:
 
 ```yaml
 name: Update star history
@@ -31,89 +44,118 @@ jobs:
           token: ${{ github.token }}
 ```
 
+> [!NOTE]
+> To chart the repository that runs the workflow, you can omit `repo` — it
+> defaults to the current repository (`${{ github.repository }}`).
+
+## Scheduling updates
+
+The action is typically driven by a `schedule` event. Configure any cron
+expression you like:
+
+| Frequency | Cron expression | Meaning                            |
+| --------- | --------------- | ---------------------------------- |
+| Daily     | `0 0 * * *`     | Every day at 00:00                 |
+| Weekly    | `0 0 * * 1`     | Every Monday at 00:00              |
+| Monthly   | `0 0 1 * *`     | On the 1st of every month at 00:00 |
+
+```yaml
+on:
+  schedule:
+    - cron: '0 0 * * 1' # weekly, every Monday
+```
+
+Schedules use [UTC](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#schedule),
+so adjust the hour for your timezone. Always keep `workflow_dispatch` alongside
+`schedule` so you can trigger a refresh manually.
+
+Adding `push` to the trigger list keeps the chart fresh on every commit:
+
+```yaml
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+```
+
+## Comparing multiple repositories
+
+Pass several comma/space-separated `owner/repo` values to `repo` and the chart
+draws one line per repository on shared axes:
+
+```yaml
+with:
+  repo: vuejs/core, facebook/react, sveltejs/svelte
+```
+
+> [!IMPORTANT]
+> Multi-repo (and private-repo) tracking requires a
+> **Personal Access Token (PAT)**, not the default `${{ github.token }}`.
+> The automatic `github.token` can only access the repository that runs the
+> workflow, so it cannot read other repositories.
+
+Create a fine-grained PAT (`Settings → Developer settings → Personal access
+tokens`) with **read-only** access to the repositories you want to chart, then
+store it as an Actions secret:
+
+```yaml
+with:
+  repo: vuejs/core, facebook/react, sveltejs/svelte
+  token: ${{ secrets.GH_TOKEN }}
+```
+
 ## Inputs
 
-<!-- markdownlint-disable MD060 -->
+| Name               | Required | Default                    | Description                                                                                                                                                                             |
+| ------------------ | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo`             | No       | `${{ github.repository }}` | Repository to chart, e.g. `pengzhanbo/star-history-action`. Comma/space separated (e.g. `a/repo1, b/repo2`) to compare multiple repos in one chart.                                     |
+| `token`            | No       | `${{ github.token }}`      | GitHub token with read access to the target repo. Use a PAT for multiple/private repos.                                                                                                 |
+| `output-directory` | No       | `assets`                   | Directory to write the chart into, relative to the workspace root.                                                                                                                      |
+| `output-filename`  | No       | `star-history.svg`         | Output file name. A missing or unknown extension (`.svg`/`.png`/`.json` are recognized) is completed based on the `output-format` list. With both themes, `-light`/`-dark` is appended. |
+| `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                                                                                       |
+| `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                                                                                    |
+| `output-format`    | No       | `svg`                      | Output format(s): `svg`, `png` (rasterized from the SVG), `json` (structured record data), or any combination (e.g. `svg,png,json`).                                                    |
+| `radar`            | No       | `false`                    | Also render a per-repo radar chart of repo health metrics (stars, new stars, pushes, contributors, issues closed, forks), each scored 0–99.                                             |
+| `cache`            | No       | `false`                    | Incremental fetch: read the previous run's `<stem>.cache.json` as a baseline and only fetch stargazers added since, slashing API quota on large repositories.                           |
 
-| Name               | Required | Default                    | Description                                                                                                                                                                                                                 |
-| ------------------ | -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repo`             | No       | `${{ github.repository }}` | Repository to chart, e.g. `pengzhanbo/star-history-action`. Comma/space separated (e.g. `a/repo1, b/repo2`) to compare multiple repos in one chart.                                                                         |
-| `token`            | No       | `${{ github.token }}`      | GitHub token with read access to the target repo. Use a PAT for private or GHES targets.                                                                                                                                    |
-| `output-directory` | No       | `assets`                   | Directory to write the chart into, relative to the workspace root.                                                                                                                                                          |
-| `output-filename`  | No       | `star-history.svg`         | Output file name. Missing or unknown extensions (`.svg`/`.png`/`.json` are recognized) are completed based on the `output-format` list. When both themes are configured, `-light`/`-dark` is appended before the extension. |
-| `svg-width`        | No       | `960`                      | Width of the generated SVG in pixels; height is 2/3 of the width.                                                                                                                                                           |
-| `theme`            | No       | `light`                    | Chart theme: `light`, `dark`, or comma/space separated `light, dark` to output both.                                                                                                                                        |
-| `output-format`    | No       | `svg`                      | Output file format(s): `svg` (default), `png` (rasterized from the SVG), `json` (structured record data instead of charts), or any comma/space-separated combination (e.g. `svg,png,json`) to generate several at once.     |
-| `radar`            | No       | `false`                    | Also render a per-repo radar SVG chart of repo health metrics (stars, new stars, pushes, contributors, issues closed, forks), each scored 0–99.                                                                             |
-| `cache`            | No       | `false`                    | Incremental fetch: read the previous run's `<stem>.cache.json` as a baseline and only fetch stargazers added since, slashing API quota on repos with large histories.                                                       |
+## Rate limits
 
-<!-- markdownlint-enable MD060 -->
+The action reads data from the GitHub REST API, which limits how many requests
+you can make per hour:
 
-## Behavior
+| Authentication                      | Primary rate limit             |
+| ----------------------------------- | ------------------------------ |
+| Unauthenticated                     | 60 requests / hour per IP      |
+| Personal access token (PAT)         | 5,000 requests / hour          |
+| Automatic `github.token` in Actions | 1,000 requests / hour per repo |
 
-- **Data source**: the GitHub REST API (`GITHUB_API_URL` is honored, so GitHub
-  Enterprise instances work too).
-- **Multi-repo comparison**: pass several comma/space-separated `owner/repo`
-  values to `repo` and the chart draws one line per repository on shared axes,
-  with a per-repo legend entry (and avatar when the repos share one owner).
-- **History fidelity**: up to 15 pages are fetched per repository.
-  Repositories whose history fits within that budget (≈1,500 stars) get an
-  exact per-day series; larger repositories are sampled at evenly spaced
-  boundary points (each within ±100 stars of the real count).
-- **Incremental fetch**: with `cache: true`, the previous run's
-  `<stem>.cache.json` (committed alongside the charts, containing the same
-  `{ date, stars }` records) becomes the baseline. Subsequent runs walk only
-  the newest stargazers pages until they dip below the baseline date — a
-  handful of requests instead of the full history — and merge the increment
-  onto the baseline. This is most effective for repos with 1,500+ stars: the
-  per-run request count stays flat as the history grows. A fresh/absent
-  baseline, an oldest-first GitHub instance, or an increment that outgrows the
-  budget degrades gracefully to a full fetch. Without new stargazers the cache
-  bytes are unchanged, so reruns stay idempotent.
-- **Rendering**: a hand-drawn xkcd-style line chart, with the xkcd font
-  embedded inline so the SVG renders standalone anywhere.
-- **Commit & push**: the chart is committed as `github-actions[bot]` and pushed
-  to the current branch on the default remote. Reruns that produce no changes
-  skip the commit, so the workflow is idempotent. On `pull_request` events the
-  write-back is skipped entirely — forked PRs cannot be pushed to with the
-  default token, and the chart does not belong on a feature branch.
-- **Output format**: SVG by default. `output-filename` no longer has to end
-  in `.svg`: a missing or unknown extension (`.svg`, `.png`, `.json` are
-  recognized) is completed per format — e.g. with `output-format: svg,png` a
-  bare `chart` produces `chart.svg` + `chart.png`, and an unknown `chart.webp`
-  becomes `chart.webp.svg` + `chart.webp.png`. `output-format` accepts any
-  comma/space-separated combination of `svg`, `png` and `json` (e.g.
-  `svg,png,json`) to generate several formats in one run. With `png` in the
-  list, the chart is rasterized to PNG(s) via resvg (the `.png` name mirrors
-  the `.svg` one, e.g. `star-history-light.png`). resvg loads the xkcd font
-  from the action's `assets/xkcd.ttf`, so the PNG text style matches the SVG
-  instead of falling back to a system font; the result is then
-  palette-quantized via sharp for a ~65% smaller file with pixel-identical
-  output.
-- **Radar chart**: with `radar: true`, a per-repo radar SVG is written alongside
-  the history chart, one file per theme like the history chart itself — for a
-  single repo/theme that's `<stem>-radar.svg`; multiple repos append
-  `<owner>-<repo>` and both themes insert `-light`/`-dark` before the extension
-  (e.g. `star-history-radar-owner-repo-dark.svg`). Six metrics (stars, new stars
-  over 30 days, pushes, contributors, issues closed, forks) are fetched from the
-  GitHub API and mapped to 0–99 scores on a log scale, so the radar compares
-  metric intensity rather than raw counts. The xkcd font is inlined as a woff2
-  subset (same as the history chart). Radar output follows the same
-  `output-format` list as the history chart: when it includes `png` a PNG twin
-  is rasterized per theme/repo at the radar's native 400×400 size, and both the
-  SVGs and PNGs are included in the same commit as the history chart.
-- **JSON export**: with `json` in the `output-format` list, the fetched records
-  are written as `star-history.json` (the `output-filename` stem with a `.json`
-  extension) as `{ updatedAt, repos: [{ repo, records, radar? }] }` — `records`
-  is the ascending `{ date, stars }` series and `radar` holds the 0–99 scores
-  when `radar: true`. A pure `json` list renders no charts; combined with `svg`
-  and/or `png` the charts are still generated alongside the JSON. The JSON is
-  theme-agnostic (no `-light`/`-dark` variants) and holds every repo in one
-  file, ready for downstream tooling (badges, custom frontends, archives).
-- **Partial success**: when several repos are compared, a repo that fails to
-  fetch (404, rate limit, no stars) is skipped with a warning instead of
-  failing the whole run — the survivors still chart and commit. The run only
-  fails when every repo fails.
+Requests per run: the action fetches at most **15 pages** per repository
+(≈1,500 stars); larger repositories are sampled, so the request count stays
+flat. `radar: true` adds ~4 requests per repo, and `cache: true` makes
+subsequent runs fetch only the newest pages since the last run. With a PAT and
+a weekly schedule, one run consumes a tiny fraction of your hourly quota. The
+action backs off on `403`/`429` rate-limit responses and waits up to a minute
+if the reset is near.
+
+## Features
+
+- **Multi-repo comparison** — one chart, one line per repository, with a
+  per-repo legend entry (and avatars when the repos share one owner).
+- **Incremental fetch** — with `cache: true`, reruns fetch only stargazers
+  added since the previous run; without new stars the commit is skipped, so
+  reruns stay idempotent.
+- **Output formats** — `svg` (default), `png` (rasterized from the SVG with
+  the xkcd font embedded), and `json` (structured `{ date, stars }` records for
+  downstream tooling), in any combination.
+- **Enterprise support** — `GITHUB_API_URL` is honored, so GitHub Enterprise
+  instances work too.
+- **Partial success** — when comparing several repos, a repo that fails to
+  fetch is skipped with a warning instead of failing the whole run.
+- **Commit & push** — the chart is committed as `github-actions[bot]` and
+  pushed to the current branch. On `pull_request` events the write-back is
+  skipped entirely.
 
 ## Embedding the chart in your README
 
@@ -146,28 +188,10 @@ to swap the chart automatically with the viewer's color scheme:
 
 Notes:
 
-- Adjust the paths if you change `output-directory` or `output-filename` (for a
-  single theme, the SVG file derives its name from the input stem, completing
-  the `.svg` extension when missing; for both themes, `-light` / `-dark` is
-  inserted before the extension).
-- Relative paths resolve against the repository root on the branch the README is
-  rendered from. The workflow commits and pushes the chart, so the image updates
-  once the run completes.
+- Adjust the paths if you change `output-directory` or `output-filename`.
+- The workflow commits and pushes the chart, so the image updates once the run
+  completes.
 - If your README lives in a subdirectory, prefix the relative path with `../`.
-- The `alt` text keeps the chart accessible and is shown when the image cannot
-  load.
-
-## Development
-
-```bash
-pnpm install
-pnpm lint   # oxlint (type-aware) + oxfmt check
-pnpm build  # tsdown → dist/index.js
-pnpm test --run  # vitest, including a hermetic end-to-end run
-```
-
-`dist/index.js` is committed so the composite action can run `node dist/index.js`
-after installing production dependencies.
 
 ## License
 
