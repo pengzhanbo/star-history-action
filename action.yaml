@@ -39,9 +39,9 @@ inputs:
     required: false
     default: svg
   radar:
-    description: Whether to also render a per-repo radar SVG chart of repo
-      health metrics (stars, new stars, pushes, contributors, issues closed,
-      forks), each scored 0-99
+    description: Whether to also render a per-repo radar SVG chart of repo health
+      metrics (stars, new stars, pushes, contributors, issues closed, forks),
+      each scored 0-99
     required: false
     default: 'false'
 
@@ -64,9 +64,10 @@ runs:
       # hashFiles() only resolves paths under GITHUB_WORKSPACE, but this action's
       # own lockfile lives in github.action_path; hash it here and feed the
       # digest to actions/cache as a step output.
-      run: echo "lockfile=$(sha256sum pnpm-lock.yaml | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      run: echo "lockfile=$(sha256sum pnpm-lock.yaml | cut -d' ' -f1)" >>
+        "$GITHUB_OUTPUT"
     - name: Restore dependency cache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         # node_modules caches the --prod install result: on a hit the install
         # step below becomes a fast no-op (pnpm only re-verifies the linkage).
