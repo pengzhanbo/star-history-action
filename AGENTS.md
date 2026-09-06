@@ -62,22 +62,19 @@ No `typecheck`, `dev`, or `run` scripts exist. Type checking rides on oxlint's `
 
 ## Important Files
 
-| File | Role |
-<!-- markdownlint-disable MD060 -->
-
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `action.yaml` | Runtime contract: composite action — `pnpm/action-setup`, `actions/cache@v4` (restores `node_modules`; key built from a `run`-step lockfile hash), `pnpm install --frozen-lockfile --prod`, then `node dist/index.js` with all eight inputs mapped to `INPUT_*` env vars |
-| `src/index.ts` | Action entry: parse → fetch → render → write → commit/push; errors → `setFailed` |
-| `src/services/api.ts` | GitHub REST client: repo info, paginated stargazer fetch, order-agnostic star records, repo logo (base from `GITHUB_API_URL`) |
-| `src/services/radar.ts` | Radar metrics: `percentileOf` (log10 → 0–99), `newStarsInLastDays` (30-day window), `getRepoRadarAttributes` (repos/contributors/commits/search calls, each repo ~4 requests) |
-| `src/charts/xy-chart.ts` | Main line-chart orchestrator + `XYData`/`XYChartData`/`XYChartConfig`/`XYChartOptions` contracts |
-| `src/charts/card-landscape1.ts`, `src/charts/radar-svg.ts` | Satori OG-card + radar SVG generators (pure, import-free; `renderRadarSvg` is wired into the action when `radar` is on, the card is not used yet) |
-| `package.json` | Scripts + deps (runtime deps include `jsdom` — installed by the action at run time); `packageManager` feeds `pnpm/action-setup` |
-| `tsdown.config.ts`, `tsconfig.json` | Build config (ESM, dts, clean, exports rewrite; deps external by design) / type config (extends `@tsconfig/node24` + `strictest`, lib `ESNext+DOM`, `jsx: preserve`) |
-| `oxlint.config.ts`, `oxfmt.config.ts` | Lint/format presets from `@pengzhanbo/oxc-config` (node rules scoped `['src/**/*.ts']`; regexp plugin on) |
-| `.eslintignore` | Excludes generated `dist/` from oxlint |
-| `.env` | Local only (gitignored): `GITHUB_TOKEN` for dev API calls. Not referenced by action.yaml; never a runtime input |
-<!-- markdownlint-enable MD060 -->
+| File                                                       | Role                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `action.yaml`                                              | Runtime contract: composite action — `pnpm/action-setup`, `actions/cache@v4` (restores `node_modules`; key built from a `run`-step lockfile hash), `pnpm install --frozen-lockfile --prod`, then `node dist/index.js` with all eight inputs mapped to `INPUT_*` env vars |
+| `src/index.ts`                                             | Action entry: parse → fetch → render → write → commit/push; errors → `setFailed`                                                                                                                                                                                         |
+| `src/services/api.ts`                                      | GitHub REST client: repo info, paginated stargazer fetch, order-agnostic star records, repo logo (base from `GITHUB_API_URL`)                                                                                                                                            |
+| `src/services/radar.ts`                                    | Radar metrics: `percentileOf` (log10 → 0–99), `newStarsInLastDays` (30-day window), `getRepoRadarAttributes` (repos/contributors/commits/search calls, each repo ~4 requests)                                                                                            |
+| `src/charts/xy-chart.ts`                                   | Main line-chart orchestrator + `XYData`/`XYChartData`/`XYChartConfig`/`XYChartOptions` contracts                                                                                                                                                                         |
+| `src/charts/card-landscape1.ts`, `src/charts/radar-svg.ts` | Satori OG-card + radar SVG generators (pure, import-free; `renderRadarSvg` is wired into the action when `radar` is on, the card is not used yet)                                                                                                                        |
+| `package.json`                                             | Scripts + deps (runtime deps include `jsdom` — installed by the action at run time); `packageManager` feeds `pnpm/action-setup`                                                                                                                                          |
+| `tsdown.config.ts`, `tsconfig.json`                        | Build config (ESM, dts, clean, exports rewrite; deps external by design) / type config (extends `@tsconfig/node24` + `strictest`, lib `ESNext+DOM`, `jsx: preserve`)                                                                                                     |
+| `oxlint.config.ts`, `oxfmt.config.ts`                      | Lint/format presets from `@pengzhanbo/oxc-config` (node rules scoped `['src/**/*.ts']`; regexp plugin on)                                                                                                                                                                |
+| `.eslintignore`                                            | Excludes generated `dist/` from oxlint                                                                                                                                                                                                                                   |
+| `.env`                                                     | Local only (gitignored): `GITHUB_TOKEN` for dev API calls. Not referenced by action.yaml; never a runtime input                                                                                                                                                          |
 
 ## Runtime/Tooling Preferences
 
