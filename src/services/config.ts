@@ -17,11 +17,13 @@ export type ChartTheme = (typeof THEMES)[number]
  */
 export interface ActionConfig {
   /**
-   * Repository in `owner/repo` form.
+   * Repositories in `owner/repo` form; the `repo` input accepts multiple
+   * comma/space-separated entries to compare several repos in one chart.
    *
-   * `owner/repo` 形式的仓库标识。
+   * `owner/repo` 形式的仓库列表；`repo` 输入支持逗号/空格分隔多个仓库，
+   * 用于在单个图表中对比。
    */
-  repo: string
+  repos: string[]
   /**
    * Authentication token for GitHub API requests.
    *
@@ -78,8 +80,22 @@ function isTheme(value: string): value is ChartTheme {
  * const config = parseInputs()
  */
 export function parseInputs(): ActionConfig {
-  const repo = getInput('repo') || GITHUB_REPOSITORY
-  if (!repo) {
+  // The repo input accepts comma/space-separated `owner/repo` entries; each is
+  // trimmed, empties dropped, and duplicates removed (same policy as theme).
+  // repo 输入接受逗号/空格分隔的 `owner/repo` 条目：逐个去空白、丢弃空值、
+  // 去重（与 theme 相同的策略）。
+  const repos: string[] = []
+  const rawRepo = getInput('repo') || GITHUB_REPOSITORY
+  for (const value of rawRepo.split(/[,，\s]+/)) {
+    const repo = value.trim()
+    if (!repo) {
+      continue
+    }
+    if (!repos.includes(repo)) {
+      repos.push(repo)
+    }
+  }
+  if (repos.length === 0) {
     throw new Error('repo input is required')
   }
 
@@ -135,7 +151,7 @@ export function parseInputs(): ActionConfig {
     themes.push('light')
   }
 
-  return { repo, token, outputDirectory, outputFilename, svgWidth, themes }
+  return { repos, token, outputDirectory, outputFilename, svgWidth, themes }
 }
 
 /**

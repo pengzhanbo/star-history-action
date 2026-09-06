@@ -670,9 +670,7 @@ function XYChart(svg, { title, xLabel, yLabel, data: { datasets }, showDots, the
 * @returns The serialized SVG markup / 序列化后的 SVG 标记
 * @example
 * const svg = await renderStarHistorySvg({
-*   repo: 'owner/repo',
-*   logo: '',
-*   records,
+*   datasets: [{ repo: 'owner/repo', logo: '', records }],
 *   theme: 'dark',
 *   width: 960,
 * })
@@ -687,14 +685,14 @@ async function renderStarHistorySvg(input) {
 		title: "Star History",
 		xLabel: "Date",
 		yLabel: "Stars",
-		data: { datasets: [{
-			label: input.repo,
-			logo: input.logo,
-			data: input.records.map((record) => ({
+		data: { datasets: input.datasets.map(({ repo, logo, records }) => ({
+			label: repo,
+			logo,
+			data: records.map((record) => ({
 				x: /* @__PURE__ */ new Date(`${record.date}T00:00:00Z`),
 				y: record.stars
 			}))
-		}] },
+		})) },
 		showDots: false,
 		transparent: false,
 		theme: input.theme
@@ -1061,8 +1059,14 @@ function isTheme(value) {
 * const config = parseInputs()
 */
 function parseInputs() {
-	const repo = getInput("repo") || GITHUB_REPOSITORY;
-	if (!repo) throw new Error("repo input is required");
+	const repos = [];
+	const rawRepo = getInput("repo") || GITHUB_REPOSITORY;
+	for (const value of rawRepo.split(/[,，\s]+/)) {
+		const repo = value.trim();
+		if (!repo) continue;
+		if (!repos.includes(repo)) repos.push(repo);
+	}
+	if (repos.length === 0) throw new Error("repo input is required");
 	const token = getInput("token");
 	if (!token) throw new Error("token input is required");
 	const outputDirectory = getInput("output-directory") || "assets";
@@ -1083,7 +1087,7 @@ function parseInputs() {
 	}
 	if (themes.length === 0) themes.push("light");
 	return {
-		repo,
+		repos,
 		token,
 		outputDirectory,
 		outputFilename,
@@ -1237,15 +1241,16 @@ async function run() {
 	const outDir = resolve(workspace, config.outputDirectory);
 	const isInsideWorkspace = outDir === workspace || outDir.startsWith(`${workspace}${sep}`);
 	if (!isAbsolute(outDir) || !isInsideWorkspace) throw new Error("output-directory must point inside the workspace");
-	const records = await getRepoStarRecords(config.repo, config.token, 15);
-	const logo = await toBase64(await getRepoLogo(config.repo, config.token));
+	const datasets = await Promise.all(config.repos.map(async (repo) => ({
+		repo,
+		records: await getRepoStarRecords(repo, config.token, 15),
+		logo: await toBase64(await getRepoLogo(repo, config.token))
+	})));
 	await mkdir(outDir, { recursive: true });
 	const chartFiles = getChartFilePaths(config);
 	for (const { theme, file } of chartFiles) {
 		const svg = await renderStarHistorySvg({
-			repo: config.repo,
-			logo,
-			records,
+			datasets,
 			theme,
 			width: config.svgWidth
 		});

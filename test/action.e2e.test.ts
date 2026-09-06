@@ -19,6 +19,20 @@ const starsByPage: Record<number, string[]> = {
   3: Array.from({ length: 60 }, () => '2024-09-01T00:00:00Z'),
 }
 
+// Mock repo catalog; the multi-repo e2e case charts owner/repo + other/repo.
+// 模拟仓库目录；多仓库 e2e 用例对比 owner/repo 与 other/repo。
+const repoData: Record<
+  string,
+  { stargazers_count: number; created_at: string; pages: Record<number, string[]> }
+> = {
+  'owner/repo': { stargazers_count: 260, created_at, pages: starsByPage },
+  'other/repo': {
+    stargazers_count: 60,
+    created_at: '2024-02-01T00:00:00Z',
+    pages: { 1: Array.from({ length: 60 }, () => '2024-04-01T00:00:00Z') },
+  },
+}
+
 let server: http.Server
 let serverUrl = ''
 
@@ -59,7 +73,11 @@ async function isDistStale(): Promise<boolean> {
 // The action child must be spawned asynchronously: spawnSync would block this
 // process's event loop, starving the in-process mock HTTP server and making
 // the action's fetches time out.
-function runAction(): Promise<{ status: number | null; stdout: string; stderr: string }> {
+function runAction(env: Record<string, string> = {}): Promise<{
+  status: number | null
+  stdout: string
+  stderr: string
+}> {
   return new Promise((resolve, reject) => {
     const child = spawn('node', [distEntry], {
       env: {
@@ -73,6 +91,7 @@ function runAction(): Promise<{ status: number | null; stdout: string; stderr: s
         GITHUB_REPOSITORY: '',
         GITHUB_HEAD_REF: '',
         GITHUB_REF_NAME: '',
+        ...env,
       },
     })
     let stdout = ''
@@ -96,28 +115,51 @@ beforeAll(async () => {
   server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', serverUrl)
     res.setHeader('content-type', 'application/json')
-    if (url.pathname === '/repos/owner/repo') {
-      res.end(JSON.stringify({ stargazers_count: 260, created_at }))
-      return
-    }
-    if (url.pathname === '/repos/owner/repo/stargazers') {
-      const page = Number(url.searchParams.get('page') ?? '1')
-      if (page === 1) {
-        // GitHub-style Link header advertising the last page.
-        const base = `${serverUrl}/repos/owner/repo/stargazers?per_page=100`
-        res.setHeader(
-          'link',
-          `<${base}&page=2&per_page=100>; rel="next", <${base}&page=3&per_page=100>; rel="last"`,
-        )
+
+    const stargazersMatch = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)\/stargazers$/)
+    if (stargazersMatch) {
+      const key = `${stargazersMatch[1]}/${stargazersMatch[2]}`
+      const data = repoData[key]
+      if (data) {
+        const page = Number(url.searchParams.get('page') ?? '1')
+        if (page === 1 && Object.keys(data.pages).length > 1) {
+          // GitHub-style Link header advertising the last page.
+          const base = `${serverUrl}${url.pathname}?per_page=100`
+          const last = Object.keys(data.pages).length
+          const links = [`<${base}&page=2&per_page=100>; rel="next"`]
+          if (last > 2) {
+            links.push(`<${base}&page=${last}&per_page=100>; rel="last"`)
+          }
+          res.setHeader('link', links.join(', '))
+        }
+        res.end(JSON.stringify((data.pages[page] ?? []).map((starred_at) => ({ starred_at }))))
+        return
       }
-      res.end(JSON.stringify((starsByPage[page] ?? []).map((starred_at) => ({ starred_at }))))
+      res.statusCode = 404
+      res.end('{}')
       return
     }
-    if (url.pathname === '/users/owner') {
-      res.end(JSON.stringify({ avatar_url: `${serverUrl}/users/owner/avatar.png` }))
+
+    const repoMatch = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)$/)
+    if (repoMatch) {
+      const data = repoData[`${repoMatch[1]}/${repoMatch[2]}`]
+      if (data) {
+        res.end(
+          JSON.stringify({ stargazers_count: data.stargazers_count, created_at: data.created_at }),
+        )
+        return
+      }
+      res.statusCode = 404
+      res.end('{}')
       return
     }
-    if (url.pathname === '/users/owner/avatar.png') {
+
+    const userMatch = url.pathname.match(/^\/users\/([^/]+)$/)
+    if (userMatch) {
+      res.end(JSON.stringify({ avatar_url: `${serverUrl}${url.pathname}/avatar.png` }))
+      return
+    }
+    if (url.pathname.match(/^\/users\/[^/]+\/avatar\.png$/)) {
       // The action base64-encodes the avatar as an inline <img>; a real 1x1
       // PNG lets sharp resize/encode it during optimization.
       res.setHeader('content-type', 'image/png')
@@ -201,5 +243,22 @@ describe('action end-to-end (mock GitHub API)', () => {
 
     expect(git(workspace, 'rev-parse', 'HEAD').trim()).toBe(before)
     expect(git(workspace, 'rev-list', '--count', 'HEAD').trim()).toBe('2')
+  })
+
+  it('renders a multi-repo comparison chart', async () => {
+    const result = await runAction({
+      INPUT_REPO: 'owner/repo, other/repo',
+      INPUT_THEME: 'light',
+    })
+    expect(result.stderr).toBe('')
+    expectSuccess(result)
+    expect(result.stdout).toContain('wrote assets/star-history.svg')
+
+    const svg = readFileSync(join(workspace, 'assets/star-history.svg'), 'utf8')
+    // one line path per repo, and both labels appear in the legend
+    expect(svg.match(/class="xkcd-chart-xyline"/g)).toHaveLength(2)
+    expect(svg).toContain('owner/repo')
+    expect(svg).toContain('other/repo')
+    expect(svg).toContain('background:#fff')
   })
 })

@@ -5,29 +5,43 @@ import { XYChart } from './charts/index.js'
 import { getSubsetFontUrl } from './common/font-subset.js'
 
 /**
- * Inputs for rendering a star-history chart.
+ * One dataset of a star-history chart: a repo, its avatar, and its records.
  *
- * 渲染 star-history 图表的输入。
+ * star-history 图表中的一个数据集：一个仓库、其头像及记录。
  */
-export interface RenderChartInput {
+export interface RenderChartDataset {
   /**
-   * Repository in `owner/repo` form; used as the dataset label AND chart title.
+   * Repository in `owner/repo` form; used as the dataset label.
    *
-   * `owner/repo` 形式的仓库标识；同时用作数据集标签与图表标题。
+   * `owner/repo` 形式的仓库标识；用作数据集标签。
    */
-  repo: string // 'owner/name' — used as dataset label AND chart title
+  repo: string
   /**
    * Avatar URL from getRepoLogo; `''` means no title logo.
    *
    * 来自 getRepoLogo 的头像 URL；为空字符串时标题不显示 logo。
    */
-  logo: string // avatar URL from getRepoLogo; '' means no title logo
+  logo: string
   /**
    * Star records ascending by date; shape from api.getRepoStarRecords.
    *
    * 按日期升序的 star 记录；结构来自 api.getRepoStarRecords。
    */
   records: { date: string; stars: number }[] // ascending by date; shape from api.getRepoStarRecords
+}
+
+/**
+ * Inputs for rendering a star-history chart.
+ *
+ * 渲染 star-history 图表的输入。
+ */
+export interface RenderChartInput {
+  /**
+   * Datasets to chart; one line per entry, compared on shared axes.
+   *
+   * 要绘制的数据集；每条数据画一条折线，共享同一坐标系。
+   */
+  datasets: RenderChartDataset[]
   /**
    * Chart theme to render.
    *
@@ -58,9 +72,7 @@ export interface RenderChartInput {
  * @returns The serialized SVG markup / 序列化后的 SVG 标记
  * @example
  * const svg = await renderStarHistorySvg({
- *   repo: 'owner/repo',
- *   logo: '',
- *   records,
+ *   datasets: [{ repo: 'owner/repo', logo: '', records }],
  *   theme: 'dark',
  *   width: 960,
  * })
@@ -77,16 +89,14 @@ export async function renderStarHistorySvg(input: RenderChartInput): Promise<str
   svg.setAttribute('width', String(input.width))
 
   const data: XYChartData = {
-    datasets: [
-      {
-        label: input.repo,
-        logo: input.logo,
-        data: input.records.map((record) => ({
-          x: new Date(`${record.date}T00:00:00Z`),
-          y: record.stars,
-        })),
-      },
-    ],
+    datasets: input.datasets.map(({ repo, logo, records }) => ({
+      label: repo,
+      logo,
+      data: records.map((record) => ({
+        x: new Date(`${record.date}T00:00:00Z`),
+        y: record.stars,
+      })),
+    })),
   }
 
   const config: XYChartConfig = {

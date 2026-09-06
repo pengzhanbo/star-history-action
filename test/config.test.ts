@@ -30,7 +30,7 @@ describe('parseInputs', () => {
     const parseInputs = await loadParseInputs()
 
     expect(parseInputs()).toEqual<ActionConfig>({
-      repo: 'owner/repo',
+      repos: ['owner/repo'],
       token: 't0k3n',
       outputDirectory: 'assets',
       outputFilename: 'star-history.svg',
@@ -44,7 +44,28 @@ describe('parseInputs', () => {
     stubInputs({ repo: 'input/repo', token: 't' })
     const parseInputs = await loadParseInputs()
 
-    expect(parseInputs().repo).toBe('input/repo')
+    expect(parseInputs().repos).toEqual(['input/repo'])
+  })
+
+  it('parses comma and whitespace separated repos, trimmed and deduped', async () => {
+    stubInputs({ repo: ' a/b , c/d  d/e, a/b ', token: 't' })
+    const parseInputs = await loadParseInputs()
+
+    expect(parseInputs().repos).toEqual(['a/b', 'c/d', 'd/e'])
+  })
+
+  it('accepts the full-width comma as a repo separator', async () => {
+    stubInputs({ repo: 'a/b，c/d', token: 't' })
+    const parseInputs = await loadParseInputs()
+
+    expect(parseInputs().repos).toEqual(['a/b', 'c/d'])
+  })
+
+  it('throws when no repo is given and GITHUB_REPOSITORY is missing', async () => {
+    stubInputs({ repo: '  ,  ', token: 't' })
+    const parseInputs = await loadParseInputs()
+
+    expect(() => parseInputs()).toThrow('repo input is required')
   })
 
   it('throws when token is missing', async () => {
@@ -136,7 +157,7 @@ describe('parseInputs', () => {
 
 describe('getChartFilePaths', () => {
   const baseConfig: ActionConfig = {
-    repo: 'owner/repo',
+    repos: ['owner/repo'],
     token: 't',
     outputDirectory: 'assets',
     outputFilename: 'star-history.svg',

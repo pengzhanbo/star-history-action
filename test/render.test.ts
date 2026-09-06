@@ -8,9 +8,7 @@ const records = [
 ]
 
 const baseInput = {
-  repo: 'owner/repo',
-  logo: '',
-  records,
+  datasets: [{ repo: 'owner/repo', logo: '', records }],
   width: 960,
 }
 
@@ -75,7 +73,13 @@ describe('renderStarHistorySvg', () => {
   it('labels the current star count at the newest point', async () => {
     const svg = await renderStarHistorySvg({
       ...baseInput,
-      records: [...records, { date: '2024-04-01', stars: 1234 }],
+      datasets: [
+        {
+          repo: 'owner/repo',
+          logo: '',
+          records: [...records, { date: '2024-04-01', stars: 1234 }],
+        },
+      ],
       theme: 'light',
     })
 
@@ -96,7 +100,7 @@ describe('renderStarHistorySvg', () => {
   it('keeps the title logo clear of the centered title', async () => {
     const svg = await renderStarHistorySvg({
       ...baseInput,
-      logo: 'https://example.com/avatar.png',
+      datasets: [{ repo: 'owner/repo', logo: 'https://example.com/avatar.png', records }],
       theme: 'light',
     })
 
@@ -113,5 +117,34 @@ describe('renderStarHistorySvg', () => {
     expect(logoX + logoSize).toBeLessThan(titleLeft)
     // the logo stays on-canvas
     expect(logoX).toBeGreaterThan(0)
+  })
+
+  it('renders multiple datasets as separate lines on shared axes', async () => {
+    const svg = await renderStarHistorySvg({
+      datasets: [
+        { repo: 'owner/one', logo: '', records },
+        {
+          repo: 'owner/two',
+          logo: '',
+          records: [
+            { date: '2024-02-01', stars: 20 },
+            { date: '2024-03-01', stars: 60 },
+          ],
+        },
+      ],
+      theme: 'light',
+      width: 960,
+    })
+
+    // one line path per dataset, colored differently (svgo reorders attributes,
+    // so grab each full element and read its stroke rather than assuming order)
+    const strokes = Array.from(svg.matchAll(/<path[^>]*class="xkcd-chart-xyline"[^>]*>/g)).map(
+      (match) => match[0].match(/stroke="([^"]+)"/)?.[1],
+    )
+    expect(strokes).toHaveLength(2)
+    expect(strokes[0]).not.toBe(strokes[1])
+    // both labels appear in the legend
+    expect(svg).toContain('owner/one')
+    expect(svg).toContain('owner/two')
   })
 })

@@ -33,17 +33,23 @@ async function run(): Promise<void> {
     throw new Error('output-directory must point inside the workspace')
   }
 
-  const records = await getRepoStarRecords(config.repo, config.token, DEFAULT_MAX_REQUEST_AMOUNT)
-  const logo = await toBase64(await getRepoLogo(config.repo, config.token))
+  // Fetch records + logo for every repo in parallel; each repo keeps its own
+  // request budget so comparing repos never starves one another.
+  // 并行抓取每个仓库的记录与 logo；每个仓库独立使用请求预算，互不挤占。
+  const datasets = await Promise.all(
+    config.repos.map(async (repo) => ({
+      repo,
+      records: await getRepoStarRecords(repo, config.token, DEFAULT_MAX_REQUEST_AMOUNT),
+      logo: await toBase64(await getRepoLogo(repo, config.token)),
+    })),
+  )
 
   await mkdir(outDir, { recursive: true })
 
   const chartFiles = getChartFilePaths(config)
   for (const { theme, file } of chartFiles) {
     const svg = await renderStarHistorySvg({
-      repo: config.repo,
-      logo,
-      records,
+      datasets,
       theme,
       width: config.svgWidth,
     })
