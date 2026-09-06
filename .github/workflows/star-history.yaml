@@ -26,11 +26,3 @@ jobs:
           radar: true
           cache: true
           output-format: svg,png,json
-      - uses: ./
-        with:
-          repo: pengzhanbo/vuepress-theme-plume
-          token: ${{ secrets.GITHUB_TOKEN }}
-          theme: light, dark
-          radar: true
-          output-filename: vuepress-theme-plume-star-history.svg
-          output-format: svg,png,json
